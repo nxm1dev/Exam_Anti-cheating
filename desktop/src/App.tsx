@@ -9,8 +9,9 @@ import React, { useState } from "react";
 import SetupPage, { ExamConfig } from "./pages/SetupPage";
 import ExamPage from "./pages/ExamPage";
 import ReportPage from "./pages/ReportPage";
+import TestPage from "./pages/TestPage";
 
-type AppPage = "setup" | "exam" | "report";
+type AppPage = "setup" | "exam" | "report" | "test";
 
 interface SessionInfo {
   sessionId: string;
@@ -39,7 +40,13 @@ export default function App() {
   return (
     <>
       {page === "setup" && (
-        <SetupPage onExamStart={handleExamStart} />
+        <SetupPage 
+          onExamStart={handleExamStart} 
+          onTestMode={() => setPage("test")} 
+        />
+      )}
+      {page === "test" && (
+        <TestPage onBack={() => setPage("setup")} />
       )}
       {page === "exam" && session && (
         <ExamPage

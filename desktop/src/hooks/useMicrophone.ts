@@ -61,10 +61,13 @@ export function useMicrophone({
         merged.set(chunk, offset);
         offset += chunk.length;
       }
-      // Encode as base64
-      const b64 = btoa(
-        String.fromCharCode(...new Uint8Array(merged.buffer))
-      );
+      // Encode as base64 safely (avoid spread operator for large buffers)
+      const uint8 = new Uint8Array(merged.buffer);
+      let binary = "";
+      for (let i = 0; i < uint8.byteLength; i++) {
+        binary += String.fromCharCode(uint8[i]);
+      }
+      const b64 = btoa(binary);
       try {
         const result = await api.analyzeAudio(b64, sessionId);
 

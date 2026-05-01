@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useState } from "react";
 
 export interface ExamConfig {
   userId: string;
@@ -11,125 +11,18 @@ interface Props {
     userId: string;
     referenceEmbeddingB64?: string;
   }) => void;
+  onTestMode?: () => void;
 }
 
 const api = (window as any).electronAPI;
 
-export default function SetupPage({ onExamStart }: Props) {
+export default function SetupPage({ onExamStart, onTestMode }: Props) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [examUrl, setExamUrl] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [faceRegistered, setFaceRegistered] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
-  // Preview of the last captured frame (data URL) for user feedback
-  const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Helper: wait until video has valid dimensions (up to maxMs)
-  const waitForVideoReady = (video: HTMLVideoElement, maxMs = 3000): Promise<boolean> =>
-    new Promise((resolve) => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) { resolve(true); return; }
-      const start = Date.now();
-      const check = () => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) { resolve(true); return; }
-        if (Date.now() - start > maxMs) { resolve(false); return; }
-        requestAnimationFrame(check);
-      };
-      requestAnimationFrame(check);
-    });
-
-  const openCamera = async () => {
-    try {
-      // Constraints: prefer front-facing camera, 640x480
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-        audio: false,
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        // play() may throw if interrupted; ignore that and rely on autoplay attr
-        videoRef.current.play().catch(() => {});
-      }
-      setCameraOpen(true);
-      setError("");
-    } catch (err: any) {
-      console.error("[Camera] getUserMedia failed:", err);
-      setError(
-        `Khong the mo camera: ${err?.message || "quyen bi tu choi"}. ` +
-        "Vui long kiem tra camera da duoc ket noi va cap quyen."
-      );
-    }
-  };
-
-  const captureAndRegister = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !userId) return;
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-
-    // Wait up to 3 seconds for video to have valid dimensions
-    const ready = await waitForVideoReady(video);
-    if (!ready || video.videoWidth === 0) {
-      setError("Camera chua hien thi anh. Vui long cho them 2-3 giay roi bam chup lai.");
-      return;
-    }
-
-    // Draw current video frame onto canvas
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) { setError("Loi canvas."); return; }
-    ctx.drawImage(video, 0, 0);
-
-    // Get data URL and validate it's not blank
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    if (!dataUrl || dataUrl === "data:,") {
-      setError("Khong chup duoc anh. Camera co the chua san sang.");
-      return;
-    }
-    const frameB64 = dataUrl.split(",")[1];
-    if (!frameB64 || frameB64.length < 100) {
-      setError("Du lieu anh qua nho, vui long thu lai.");
-      return;
-    }
-
-    // Show preview so user can verify the photo looks correct
-    setCapturedPreview(dataUrl);
-
-    try {
-      setLoading(true);
-      setError("");
-      await api.registerFace(userId, frameB64);
-      setFaceRegistered(true);
-      setCapturedPreview(null);
-      // Stop camera stream
-      (video.srcObject as MediaStream | null)?.getTracks().forEach((t) => t.stop());
-      setCameraOpen(false);
-    } catch (event: any) {
-      const msg: string = event?.message ?? "";
-      setRetryCount((c) => c + 1);
-      if (msg.includes("No face detected")) {
-        setError(
-          "Khong phat hien khuon mat trong anh chup. Vui long:\n" +
-          "• Nhin thang vao camera\n" +
-          "• Dam bao du anh sang\n" +
-          "• Khong deo khau trang/kinh dam\n" +
-          "• Thu chup lai"
-        );
-      } else {
-        setError(`Dang ky khuon mat that bai: ${msg || "Loi khong xac dinh"}`);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
-
   const handleRegisterUser = async () => {
     if (!fullName || !email) {
       setError("Vui long nhap day du ho ten va email.");
@@ -145,7 +38,6 @@ export default function SetupPage({ onExamStart }: Props) {
         role: "candidate",
       });
       setUserId(user.id);
-      await openCamera();
     } catch (event: any) {
       setError(event.message || "Khong the dang ky nguoi dung.");
     } finally {
@@ -238,81 +130,6 @@ export default function SetupPage({ onExamStart }: Props) {
         <div className="card fade-in" style={{ marginBottom: 16 }}>
           <h2 style={styles.sectionTitle}>
             <span style={styles.step}>2</span>
-            Dang ky khuon mat
-          </h2>
-          {!faceRegistered ? (
-            cameraOpen ? (
-              <div style={{ textAlign: "center" }}>
-                <video
-                  ref={videoRef}
-                  style={styles.video}
-                  autoPlay
-                  muted
-                  playsInline
-                  onCanPlay={() => setError("")}
-                  onLoadedMetadata={() => {
-                    // Video has dimensions now – safe to capture
-                    setError("");
-                  }}
-                />
-                <canvas ref={canvasRef} style={{ display: "none" }} />
-
-                {capturedPreview && (
-                  <div style={{ marginTop: 10 }}>
-                    <p style={{ fontSize: 11, color: "var(--color-text-muted)", marginBottom: 4 }}>
-                      Anh vua chup (AI khong phat hien mat):
-                    </p>
-                    <img
-                      src={capturedPreview}
-                      alt="preview"
-                      style={{ ...styles.video, opacity: 0.75, border: "2px solid var(--color-warning)" }}
-                    />
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "center" }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={captureAndRegister}
-                    disabled={loading}
-                  >
-                    {loading ? "Dang xu ly..." : retryCount > 0 ? "Chup lai" : "Chup anh dang ky"}
-                  </button>
-                  {retryCount >= 2 && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ fontSize: 12 }}
-                      onClick={() => {
-                        setFaceRegistered(true);
-                        (videoRef.current?.srcObject as MediaStream | null)
-                          ?.getTracks().forEach((t) => t.stop());
-                        setCameraOpen(false);
-                        setError("");
-                      }}
-                    >
-                      Bo qua (thu nghiem)
-                    </button>
-                  )}
-                </div>
-                <p style={{ fontSize: 11, color: "var(--color-text-dim)", marginTop: 8 }}>
-                  Meo: Nhin thang vao camera, dam bao du anh sang
-                </p>
-              </div>
-            ) : (
-              <p style={{ color: "var(--color-text-muted)", fontSize: 13 }}>
-                {userId ? "Camera da duoc cap quyen." : "Hoan thanh buoc 1 truoc de mo camera."}
-              </p>
-            )
-          ) : (
-            <p style={{ color: "var(--color-success)", fontSize: 13 }}>
-              &#10003; Khuon mat da duoc dang ky
-            </p>
-          )}
-        </div>
-
-        <div className="card fade-in" style={{ marginBottom: 16 }}>
-          <h2 style={styles.sectionTitle}>
-            <span style={styles.step}>3</span>
             URL bai thi
           </h2>
           <input
@@ -334,8 +151,18 @@ export default function SetupPage({ onExamStart }: Props) {
           onClick={handleStart}
           disabled={loading || !userId}
         >
-          {loading ? "Dang xu ly..." : "Bat dau thi"}
+          {loading ? "Đang xử lý..." : "Bắt đầu thi"}
         </button>
+
+        {onTestMode && (
+          <button
+            className="btn btn-ghost"
+            style={{ width: "100%", justifyContent: "center", marginTop: "12px", border: "1px dashed var(--color-border)" }}
+            onClick={onTestMode}
+          >
+            🛠 Vào chế độ Test AI Monitor
+          </button>
+        )}
       </div>
     </div>
   );

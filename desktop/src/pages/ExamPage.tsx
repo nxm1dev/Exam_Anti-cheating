@@ -13,15 +13,12 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import CameraMonitor from "../components/CameraMonitor";
+import ExamMonitor, { MonitorVerdict } from "../components/ExamMonitor";
 import AlertBanner from "../components/AlertBanner";
 import ViolationList from "../components/ViolationList";
-import { useCamera } from "../hooks/useCamera";
-import { useMicrophone } from "../hooks/useMicrophone";
-import { useViolations, ViolationEvent } from "../hooks/useViolations";
+import { useViolations } from "../hooks/useViolations";
 
 const api = (window as any).electronAPI;
-const ipc = (window as any).require?.("electron")?.ipcRenderer;
 
 interface Props {
   sessionId: string;
@@ -33,12 +30,12 @@ interface Props {
 export default function ExamPage({
   sessionId,
   userId,
-  referenceEmbeddingB64,
   onExamEnd,
 }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [showViolations, setShowViolations] = useState(false);
   const [latestAlert, setLatestAlert] = useState<{ msg: string; severity: string } | null>(null);
+  const [monitorVerdict, setMonitorVerdict] = useState<MonitorVerdict | null>(null);
   const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ── Violations ─────────────────────────────────────────────────
@@ -48,7 +45,7 @@ export default function ExamPage({
   });
 
   const handleViolation = useCallback(
-    (type: string, severity: string, metadata: Record<string, unknown>) => {
+    (type: string, severity: string, metadata: Record<string, unknown>, customMsg?: string) => {
       addViolation(type, severity, metadata);
       if (severity === "high" || severity === "critical") {
         const messages: Record<string, string> = {
@@ -58,9 +55,11 @@ export default function ExamPage({
           no_face:           "Không nhìn thấy khuôn mặt của bạn!",
           fullscreen_exit:   "Bạn đã thoát khỏi chế độ toàn màn hình!",
           app_focus_lost:    "Bạn đã chuyển sang ứng dụng khác!",
+          ai_cheating_l1:    "Phát hiện nói chuyện bất thường!",
+          ai_cheating_l2:    "Phát hiện người khác nhắc bài!",
         };
         setLatestAlert({
-          msg: messages[type] || `Vi phạm: ${type}`,
+          msg: customMsg || messages[type] || `Vi phạm: ${type}`,
           severity,
         });
       }
@@ -68,33 +67,39 @@ export default function ExamPage({
     [addViolation]
   );
 
-  // ── Camera ─────────────────────────────────────────────────────
-  const { videoRef, canvasRef, status: camStatus, startCamera, stopCamera } = useCamera({
-    sessionId,
-    userId,
-    referenceEmbeddingB64,
-    captureIntervalSeconds: 2,
-    onViolation: handleViolation,
-  });
-
-  // ── Microphone ─────────────────────────────────────────────────
-  const { status: micStatus, startMic, stopMic } = useMicrophone({
-    sessionId,
-    userId,
-    windowSeconds: 3,
-    onViolation: handleViolation,
-  });
+  // ── Multimodal Monitoring Verdict ──────────────────────────────
+  const handleMonitorVerdict = useCallback((verdict: MonitorVerdict) => {
+    setMonitorVerdict(verdict);
+    
+    // Ánh xạ level từ backend sang violation logic của frontend
+    if (verdict.level >= 1) {
+      let severity = "low";
+      let type = "ai_cheating_mild";
+      
+      if (verdict.level === 3) {
+        severity = "high";
+        type = "ai_cheating_l2";
+      } else if (verdict.level === 2) {
+        severity = "medium";
+        type = "ai_cheating_l1";
+      }
+      
+      // Nếu là lỗi cụ thể về mặt (không thấy mặt, nhiều mặt), log riêng
+      const faceCount = verdict.details?.face_count as number;
+      if (faceCount === 0) {
+        handleViolation("no_face", "high", verdict.details || {}, verdict.message);
+      } else if (faceCount > 1) {
+        handleViolation("multiple_faces", "high", verdict.details || {}, verdict.message);
+      } else {
+        handleViolation(type, severity, verdict.details || {}, verdict.message);
+      }
+    }
+  }, [handleViolation]);
 
   // ── Timer ──────────────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, []);
-
-  // ── Start monitoring on mount ──────────────────────────────────
-  useEffect(() => {
-    startCamera();
-    startMic();
   }, []);
 
   // ── Periodic violation flush ──────────────────────────────────
@@ -120,10 +125,7 @@ export default function ExamPage({
 
   // ── End exam ───────────────────────────────────────────────────
   const handleEndExam = async () => {
-    // Flush any remaining violations
     await flushViolations();
-    stopCamera();
-    stopMic();
     await api.endExam(sessionId);
     onExamEnd();
   };
@@ -133,7 +135,9 @@ export default function ExamPage({
       String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${
       String(s % 60).padStart(2, "0")}`;
 
-  const criticalCount = violations.filter(v => v.severity === "critical").length;
+  const criticalCount = violations.filter(v => v.severity === "critical" || v.severity === "high").length;
+
+  const wsUrl = `ws://127.0.0.1:8001/ws/monitor/${sessionId}`;
 
   return (
     <div style={styles.page}>
@@ -141,18 +145,18 @@ export default function ExamPage({
       <div style={styles.toolbar}>
         {/* Left: Status indicators */}
         <div style={styles.indicators}>
-          <Indicator
-            label="Camera"
-            active={camStatus.isRunning}
-            warn={!camStatus.faceDetected && camStatus.isRunning}
-            critical={camStatus.multipleFaces || camStatus.identityMatch === false}
-          />
-          <Indicator
-            label="Mic"
-            active={micStatus.isRunning}
-            warn={micStatus.hasSpeech}
-            critical={micStatus.voiceOverlap}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: monitorVerdict ? (monitorVerdict.level > 1 ? "var(--color-critical)" : monitorVerdict.level === 1 ? "var(--color-warning)" : "var(--color-success)") : "var(--color-text-dim)"
+              }}
+              className="pulse"
+            />
+            <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>AI Monitor</span>
+          </div>
           <div style={styles.timer}>{formatTime(elapsed)}</div>
         </div>
 
@@ -187,39 +191,10 @@ export default function ExamPage({
 
       {/* ── Side panel: camera + violations ───────────────────── */}
       <div style={styles.sidePanel}>
-        <canvas ref={canvasRef} style={{ display: "none" }} />
-        <CameraMonitor videoRef={videoRef} status={camStatus} />
-
-        {/* Mic status */}
-        <div style={styles.micCard}>
-          <div style={styles.micRow}>
-            <span style={styles.micLabel}>🎙 Microphone</span>
-            <div
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: micStatus.isRunning
-                  ? micStatus.voiceOverlap
-                    ? "var(--color-critical)"
-                    : micStatus.hasSpeech
-                    ? "var(--color-warning)"
-                    : "var(--color-success)"
-                  : "var(--color-text-dim)",
-              }}
-              className={micStatus.hasSpeech ? "pulse" : ""}
-            />
-          </div>
-          <div style={{ fontSize: 11, color: "var(--color-text-dim)" }}>
-            {micStatus.voiceOverlap
-              ? "🔴 Chồng giọng"
-              : micStatus.rapidChange
-              ? "⚠️ Thay đổi giọng bất thường"
-              : micStatus.hasSpeech
-              ? "🔊 Đang phát hiện giọng"
-              : "✓ Im lặng"}
-          </div>
-        </div>
+        <ExamMonitor
+          webSocketUrl={wsUrl}
+          onVerdict={handleMonitorVerdict}
+        />
 
         {/* Violations panel */}
         {showViolations && (
@@ -236,29 +211,6 @@ export default function ExamPage({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── Sub-component: Status indicator dot ──────────────────────────
-function Indicator({ label, active, warn, critical }: {
-  label: string; active: boolean; warn: boolean; critical: boolean;
-}) {
-  const color = !active
-    ? "var(--color-text-dim)"
-    : critical
-    ? "var(--color-critical)"
-    : warn
-    ? "var(--color-warning)"
-    : "var(--color-success)";
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div
-        style={{ width: 8, height: 8, borderRadius: "50%", background: color }}
-        className={active ? "pulse" : ""}
-      />
-      <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{label}</span>
     </div>
   );
 }
@@ -330,7 +282,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: "fixed",
     top: 64,
     right: 0,
-    width: 220,
+    width: 250,
     height: "calc(100vh - 64px)",
     background: "rgba(22,27,34,0.95)",
     borderLeft: "1px solid var(--color-border)",
@@ -341,27 +293,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     overflowY: "auto",
     zIndex: 999,
-  },
-  micCard: {
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: 8,
-    padding: "10px 12px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  micRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  micLabel: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: "var(--color-text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
   },
   violationPanel: {
     background: "var(--color-surface)",

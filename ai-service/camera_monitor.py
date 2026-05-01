@@ -121,13 +121,35 @@ class ExamFaceDetector:
 
     @staticmethod
     def calculate_mar(landmarks: np.ndarray, threshold: float = 0.2) -> tuple:
+        """
+        Tính MAR từ Inner Lips (InsightFace 106-point landmarks).
+
+        Sử dụng 3 cặp dọc Inner Lips thay vì Outer Lips:
+          - (97, 103): cặp trái
+          - (98, 102): cặp giữa
+          - (99, 101): cặp phải
+        Horizontal: dist(96, 100) – khóe miệng trong.
+
+        Trung bình 3 cặp dọc giúp giảm sai lệch khi nhếch mép
+        và tránh false positive cho người môi dày.
+        """
         if landmarks is None or landmarks.shape[0] < 106:
             return 0.0, False
-        vert = float(np.linalg.norm(landmarks[87] - landmarks[93]))
-        horiz = float(np.linalg.norm(landmarks[84] - landmarks[90]))
+
+        # Khoảng cách ngang giữa 2 khóe miệng trong
+        horiz = float(np.linalg.norm(landmarks[96] - landmarks[100]))
         if horiz < 1e-6:
             return 0.0, False
-        mar = vert / horiz
+
+        # Trung bình 3 khoảng cách dọc Inner Lips
+        vert_pairs = [(97, 103), (98, 102), (99, 101)]
+        vert_sum = sum(
+            float(np.linalg.norm(landmarks[t] - landmarks[b]))
+            for t, b in vert_pairs
+        )
+        vert_avg = vert_sum / len(vert_pairs)
+
+        mar = vert_avg / horiz
         return mar, mar > threshold
 
     @staticmethod

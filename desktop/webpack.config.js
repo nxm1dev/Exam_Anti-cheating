@@ -1,6 +1,7 @@
 const path = require("path");
 const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
+const CopyWebpackPlugin = require("copy-webpack-plugin");
 
 module.exports = {
   entry: "./src/index.tsx",
@@ -12,8 +13,15 @@ module.exports = {
   },
   resolve: {
     extensions: [".ts", ".tsx", ".js", ".jsx"],
+    fallback: {
+      fs: false,
+      path: false,
+      crypto: false,
+    },
   },
   module: {
+    unknownContextCritical: false,
+    exprContextCritical: false,
     rules: [
       {
         test: /\.(ts|tsx)$/,
@@ -35,6 +43,26 @@ module.exports = {
     }),
     new HtmlWebpackPlugin({
       template: "./src/index.html",
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: "node_modules/@ricky0123/vad-web/dist/*.onnx",
+          to: "[name][ext]",
+        },
+        {
+          from: "node_modules/@ricky0123/vad-web/dist/*.js",
+          to: "[name][ext]",
+        },
+        {
+          from: "node_modules/onnxruntime-web/dist/*.wasm",
+          to: "[name][ext]",
+        },
+        {
+          from: "node_modules/onnxruntime-web/dist/*.mjs",
+          to: "[name][ext]",
+        }
+      ],
     }),
   ],
   devServer: {
