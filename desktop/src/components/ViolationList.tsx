@@ -52,6 +52,27 @@ export default function ViolationList({ violations }: Props) {
           <span style={styles.time}>
             {v.timestamp.toLocaleTimeString("vi-VN")}
           </span>
+          {v.metadata?.evidence_video_path ? (
+            <div style={styles.evidenceContainer}>
+              <video 
+                src={`file://${v.metadata.evidence_video_path}`} 
+                controls
+                style={styles.evidenceImage}
+              />
+              <div style={{ fontSize: 10, color: "#9ca3af", padding: 4 }}>
+                Lưu tại: {v.metadata.evidence_video_path as string}
+              </div>
+            </div>
+          ) : v.metadata?.evidence_frame ? (
+            <div style={styles.evidenceContainer}>
+              <img 
+                src={v.metadata.evidence_frame as string} 
+                alt="Evidence" 
+                style={styles.evidenceImage}
+                className="hover-expand"
+              />
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -94,5 +115,19 @@ const styles: Record<string, React.CSSProperties> = {
     color: "var(--color-success)",
     fontSize: 13,
     padding: "20px 0",
+  },
+  evidenceContainer: {
+    marginTop: 4,
+    borderRadius: 4,
+    overflow: "hidden",
+    border: "1px solid var(--color-border)",
+    background: "#000",
+  },
+  evidenceImage: {
+    width: "100%",
+    height: "auto",
+    display: "block",
+    cursor: "pointer",
+    transition: "transform 0.2s",
   },
 };

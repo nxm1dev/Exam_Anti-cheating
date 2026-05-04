@@ -35,10 +35,48 @@ export interface MonitorVerdict {
   details?: Record<string, unknown>;
 }
 
-const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) => {
+export interface ExamMonitorHandle {
+  getSnapshot: () => string | null;
+  getEvidenceVideo: () => Promise<string | null>;
+}
+
+const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ webSocketUrl, onVerdict }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  
+  // ── Video Buffer (15s) ──
+  const mediaChunksRef = useRef<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  // Expose methods to parent
+  React.useImperativeHandle(ref, () => ({
+    getSnapshot: () => {
+      if (canvasRef.current) {
+        return canvasRef.current.toDataURL("image/jpeg", 0.7);
+      }
+      return null;
+    },
+    getEvidenceVideo: async () => {
+      if (mediaChunksRef.current.length === 0) return null;
+      
+      const blob = new Blob(mediaChunksRef.current, { type: "video/webm" });
+      
+      return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === "string") {
+            const b64 = reader.result.split(",")[1];
+            resolve(b64);
+          } else {
+            reject(new Error("Failed to convert video to base64"));
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  }));
 
   // ── VAD debounce state ──
   // Dùng useRef vì setTimeout callback cần giá trị mới nhất
@@ -88,7 +126,7 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
     };
   }, [webSocketUrl]);
 
-  // ── Camera init ──────────────────────────────────────────────────────────
+  // ── Camera init & Video Recording ──────────────────────────────────────────
   useEffect(() => {
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: false })
@@ -96,8 +134,34 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
+
+        // Setup MediaRecorder for 15s ring buffer
+        try {
+          const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+          
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              mediaChunksRef.current.push(event.data);
+              // Keep only the last 15 seconds (assuming 1 chunk = 1 second)
+              if (mediaChunksRef.current.length > 15) {
+                mediaChunksRef.current.shift();
+              }
+            }
+          };
+
+          recorder.start(1000); // 1000ms = 1 second timeslice
+          mediaRecorderRef.current = recorder;
+        } catch (err) {
+          console.error("[ExamMonitor] MediaRecorder setup failed:", err);
+        }
       })
       .catch(console.error);
+
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+    };
   }, []);
 
   // ── Capture frame + send via WebSocket ───────────────────────────────────
@@ -341,6 +405,6 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
       )}
     </div>
   );
-};
+});
 
 export default ExamMonitor;

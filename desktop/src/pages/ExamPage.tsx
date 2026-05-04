@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import ExamMonitor, { MonitorVerdict } from "../components/ExamMonitor";
+import ExamMonitor, { MonitorVerdict, ExamMonitorHandle } from "../components/ExamMonitor";
 import AlertBanner from "../components/AlertBanner";
 import ViolationList from "../components/ViolationList";
 import { useViolations } from "../hooks/useViolations";
@@ -37,6 +37,7 @@ export default function ExamPage({
   const [latestAlert, setLatestAlert] = useState<{ id: number; msg: string; severity: string } | null>(null);
   const [monitorVerdict, setMonitorVerdict] = useState<MonitorVerdict | null>(null);
   const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const monitorRef = useRef<ExamMonitorHandle>(null);
 
   // ── Violations ─────────────────────────────────────────────────
   const { violations, addViolation, flushViolations } = useViolations({
@@ -45,8 +46,34 @@ export default function ExamPage({
   });
 
   const handleViolation = useCallback(
-    (type: string, severity: string, metadata: Record<string, unknown>, customMsg?: string) => {
-      addViolation(type, severity, metadata);
+    async (type: string, severity: string, metadata: Record<string, unknown>, customMsg?: string) => {
+      // Capture evidence immediately
+      let videoB64: string | null = null;
+      let snapshotB64: string | null = null;
+      if (monitorRef.current) {
+        snapshotB64 = monitorRef.current.getSnapshot();
+        if (severity === "high" || severity === "critical" || type.startsWith("ai_cheating")) {
+          videoB64 = await monitorRef.current.getEvidenceVideo();
+        }
+      }
+
+      const enrichedMetadata = { ...metadata };
+      if (snapshotB64) enrichedMetadata.evidence_frame = snapshotB64;
+      
+      // Save video locally (NOT to central server)
+      if (videoB64) {
+        const violationId = Date.now().toString();
+        const res = await api.saveEvidenceLocal({
+          sessionId,
+          violationId,
+          videoBase64: videoB64,
+        });
+        if (res.success) {
+          enrichedMetadata.evidence_video_path = res.path;
+        }
+      }
+
+      addViolation(type, severity, enrichedMetadata);
 
       const messages: Record<string, string> = {
         multiple_faces: "Phát hiện nhiều khuôn mặt trong khung hình!",
@@ -198,6 +225,7 @@ export default function ExamPage({
       {/* ── Side panel: camera + violations ───────────────────── */}
       <div style={styles.sidePanel}>
         <ExamMonitor
+          ref={monitorRef}
           webSocketUrl={wsUrl}
           onVerdict={handleMonitorVerdict}
         />

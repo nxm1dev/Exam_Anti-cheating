@@ -133,3 +133,23 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     return data;
   });
 }
+import * as fs from "fs";
+import * as path from "path";
+
+ipcMain.handle("evidence:save-local", async (_event, { sessionId, violationId, videoBase64 }) => {
+  try {
+    const dir = path.join(process.cwd(), "violations", sessionId);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    const filePath = path.join(dir, `${violationId}.webm`);
+    const buffer = Buffer.from(videoBase64, "base64");
+    fs.writeFileSync(filePath, buffer);
+    
+    return { success: true, path: filePath };
+  } catch (error) {
+    console.error("Failed to save evidence locally", error);
+    return { success: false, error: String(error) };
+  }
+});

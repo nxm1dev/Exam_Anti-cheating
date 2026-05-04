@@ -17,6 +17,8 @@ export interface ViolationPayload {
 contextBridge.exposeInMainWorld("electronAPI", {
   startExam: (config: ExamSessionConfig) => ipcRenderer.invoke("exam:start", config),
   endExam: (sessionId: string) => ipcRenderer.invoke("exam:end", sessionId),
+  saveEvidenceLocal: (data: { sessionId: string; violationId: string; videoBase64: string }) => 
+    ipcRenderer.invoke("evidence:save-local", data),
   createUser: (payload: { email: string; full_name: string; role: string }) =>
     ipcRenderer.invoke("user:create", payload),
   getUser: (userId: string) => ipcRenderer.invoke("user:get", userId),
