@@ -19,6 +19,7 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { useMicVAD } from "@ricky0123/vad-react";
 
+
 interface ExamMonitorProps {
   /** WebSocket URL, vd: 'ws://localhost:8001/ws/monitor/session-123' */
   webSocketUrl: string;
@@ -154,6 +155,22 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
   const vad = useMicVAD({
     startOnLoad: true,
 
+    // ── WASM / ONNX file paths ──────────────────────────────────────────────
+    onnxWASMBasePath: "/",
+    baseAssetPath: "/",
+    model: "legacy",
+
+    // Cấu hình ONNX Runtime
+    ortConfig: (ort: any) => {
+      ort.env.wasm.numThreads = 1;
+      ort.env.wasm.wasmPaths = {
+        "ort-wasm-simd-threaded.wasm": "/ort-wasm-simd-threaded.wasm",
+        "ort-wasm-simd.wasm": "/ort-wasm-simd-threaded.wasm",
+        "ort-wasm.wasm": "/ort-wasm-simd-threaded.wasm",
+        "ort-wasm-threaded.wasm": "/ort-wasm-simd-threaded.wasm",
+      };
+    },
+
     onSpeechStart: () => {
       console.log("[VAD] Speech started");
       isSpeakingRef.current = true;
@@ -256,7 +273,7 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
         >
           🎙 {isSpeaking ? "SPEAKING" : "Silent"}
         </div>
-        
+
         {vad.loading && (
           <div style={{ fontSize: 10, color: "white", background: "rgba(0,0,0,0.5)", padding: "2px 6px", borderRadius: 4 }}>
             ⏳ VAD Loading...
@@ -268,8 +285,8 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, onVerdict }) =>
           </div>
         )}
         {!vad.loading && !vad.errored && !vad.listening && (
-          <button 
-            onClick={() => vad.start()} 
+          <button
+            onClick={() => vad.start()}
             style={{ fontSize: 10, padding: "2px 8px", cursor: "pointer", background: "#3b82f6", color: "white", border: "none", borderRadius: 4 }}
           >
             ▶ Start Mic

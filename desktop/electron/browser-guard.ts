@@ -29,24 +29,38 @@ interface WhitelistConfig {
 }
 
 function loadWhitelistConfig(): WhitelistConfig {
-  const configPath = path.resolve(__dirname, "../../config/whitelist.yaml");
-  try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    return yaml.load(raw) as WhitelistConfig;
-  } catch {
-    console.error("[BrowserGuard] Cannot load whitelist config, using empty list");
-    return {
-      whitelist: [],
-      resource_domains: [],
-      navigation: {
-        block_new_tab: true,
-        block_popup: true,
-        block_external_links: true,
-        block_right_click: true,
-        block_devtools: true,
-      },
-    };
+  // Try multiple candidate paths to support both dev and packaged modes.
+  // Dev mode:  __dirname = desktop/dist/electron/ → need ../../../config/
+  // Packaged:  __dirname = resources/app/dist/electron/ → need ../../config/
+  const candidates = [
+    path.resolve(__dirname, "../../config/whitelist.yaml"),
+    path.resolve(__dirname, "../../../config/whitelist.yaml"),
+    path.resolve(__dirname, "../../../../config/whitelist.yaml"),
+  ];
+
+  for (const configPath of candidates) {
+    try {
+      const raw = fs.readFileSync(configPath, "utf8");
+      console.log(`[BrowserGuard] Loaded whitelist config from: ${configPath}`);
+      return yaml.load(raw) as WhitelistConfig;
+    } catch {
+      // Try next candidate
+    }
   }
+
+  console.error("[BrowserGuard] Cannot load whitelist config from any path, using empty list");
+  console.error("[BrowserGuard] Tried:", candidates.join(", "));
+  return {
+    whitelist: [],
+    resource_domains: [],
+    navigation: {
+      block_new_tab: true,
+      block_popup: true,
+      block_external_links: true,
+      block_right_click: true,
+      block_devtools: true,
+    },
+  };
 }
 
 // ── Glob pattern matching ───────────────────────────────────────────

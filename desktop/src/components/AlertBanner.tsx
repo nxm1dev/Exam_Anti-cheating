@@ -11,17 +11,25 @@ interface Props {
   message: string;
   severity: "low" | "medium" | "high" | "critical";
   onDismiss?: () => void;
+  updateKey?: number;
 }
 
-export default function AlertBanner({ message, severity, onDismiss }: Props) {
+export default function AlertBanner({ message, severity, onDismiss, updateKey }: Props) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    if (severity === "low" || severity === "medium") {
-      const t = setTimeout(() => setVisible(false), 5000);
-      return () => clearTimeout(t);
+    setVisible(true);
+    let t: NodeJS.Timeout;
+    if (severity !== "critical") {
+      t = setTimeout(() => {
+        setVisible(false);
+        if (onDismiss) onDismiss();
+      }, 5000);
     }
-  }, [severity]);
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [message, severity, updateKey]); // Re-trigger timer when these change
 
   if (!visible) return null;
 

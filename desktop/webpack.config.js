@@ -46,14 +46,17 @@ module.exports = {
     }),
     new CopyWebpackPlugin({
       patterns: [
+        // VAD ONNX models
         {
           from: "node_modules/@ricky0123/vad-web/dist/*.onnx",
           to: "[name][ext]",
         },
+        // VAD worklet
         {
-          from: "node_modules/@ricky0123/vad-web/dist/*.js",
+          from: "node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js",
           to: "[name][ext]",
         },
+        // Copy standard WASM and MJS files from onnxruntime-web
         {
           from: "node_modules/onnxruntime-web/dist/*.wasm",
           to: "[name][ext]",
@@ -61,7 +64,7 @@ module.exports = {
         {
           from: "node_modules/onnxruntime-web/dist/*.mjs",
           to: "[name][ext]",
-        }
+        },
       ],
     }),
   ],
@@ -69,6 +72,10 @@ module.exports = {
     port: 3000,
     historyApiFallback: true,
     hot: true,
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
   },
   target: "web",
 };

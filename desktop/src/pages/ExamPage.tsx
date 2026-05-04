@@ -34,7 +34,7 @@ export default function ExamPage({
 }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [showViolations, setShowViolations] = useState(false);
-  const [latestAlert, setLatestAlert] = useState<{ msg: string; severity: string } | null>(null);
+  const [latestAlert, setLatestAlert] = useState<{ id: number; msg: string; severity: string } | null>(null);
   const [monitorVerdict, setMonitorVerdict] = useState<MonitorVerdict | null>(null);
   const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -47,22 +47,29 @@ export default function ExamPage({
   const handleViolation = useCallback(
     (type: string, severity: string, metadata: Record<string, unknown>, customMsg?: string) => {
       addViolation(type, severity, metadata);
-      if (severity === "high" || severity === "critical") {
-        const messages: Record<string, string> = {
-          multiple_faces:    "Phát hiện nhiều khuôn mặt trong khung hình!",
-          identity_mismatch: "Khuôn mặt không khớp với người đăng ký!",
-          voice_overlap:     "Phát hiện nhiều người nói cùng lúc!",
-          no_face:           "Không nhìn thấy khuôn mặt của bạn!",
-          fullscreen_exit:   "Bạn đã thoát khỏi chế độ toàn màn hình!",
-          app_focus_lost:    "Bạn đã chuyển sang ứng dụng khác!",
-          ai_cheating_l1:    "Phát hiện nói chuyện bất thường!",
-          ai_cheating_l2:    "Phát hiện người khác nhắc bài!",
-        };
-        setLatestAlert({
-          msg: customMsg || messages[type] || `Vi phạm: ${type}`,
-          severity,
-        });
-      }
+
+      const messages: Record<string, string> = {
+        multiple_faces: "Phát hiện nhiều khuôn mặt trong khung hình!",
+        identity_mismatch: "Khuôn mặt không khớp với người đăng ký!",
+        voice_overlap: "Phát hiện nhiều người nói cùng lúc!",
+        no_face: "Không nhìn thấy khuôn mặt của bạn!",
+        fullscreen_exit: "Bạn đã thoát khỏi chế độ toàn màn hình!",
+        app_focus_lost: "Cảnh báo: Bạn đã mở phần mềm khác!",
+        ai_cheating_mild: "Cảnh báo: Phát hiện đọc nhẩm / có âm thanh!",
+        ai_cheating_l1: "Cảnh báo: Phát hiện nói chuyện bất thường!",
+        ai_cheating_l2: "Cảnh báo: Phát hiện người khác nhắc bài!",
+      };
+
+      const msg = customMsg || messages[type] || `Vi phạm: ${type}`;
+
+      setLatestAlert(prev => {
+        // Nếu cùng 1 thông báo và cách nhau chưa tới 3 giây, giữ nguyên
+        // Điều này giúp tránh chớp màn hình nếu AI liên tục gửi lỗi
+        if (prev && prev.msg === msg && (Date.now() - prev.id < 3000)) {
+          return prev;
+        }
+        return { id: Date.now(), msg, severity };
+      });
     },
     [addViolation]
   );
@@ -70,12 +77,12 @@ export default function ExamPage({
   // ── Multimodal Monitoring Verdict ──────────────────────────────
   const handleMonitorVerdict = useCallback((verdict: MonitorVerdict) => {
     setMonitorVerdict(verdict);
-    
+
     // Ánh xạ level từ backend sang violation logic của frontend
     if (verdict.level >= 1) {
       let severity = "low";
       let type = "ai_cheating_mild";
-      
+
       if (verdict.level === 3) {
         severity = "high";
         type = "ai_cheating_l2";
@@ -83,7 +90,7 @@ export default function ExamPage({
         severity = "medium";
         type = "ai_cheating_l1";
       }
-      
+
       // Nếu là lỗi cụ thể về mặt (không thấy mặt, nhiều mặt), log riêng
       const faceCount = verdict.details?.face_count as number;
       if (faceCount === 0) {
@@ -131,9 +138,7 @@ export default function ExamPage({
   };
 
   const formatTime = (s: number) =>
-    `${String(Math.floor(s / 3600)).padStart(2, "0")}:${
-      String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${
-      String(s % 60).padStart(2, "0")}`;
+    `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   const criticalCount = violations.filter(v => v.severity === "critical" || v.severity === "high").length;
 
@@ -164,6 +169,7 @@ export default function ExamPage({
         <div style={styles.alertArea}>
           {latestAlert && (
             <AlertBanner
+              updateKey={latestAlert.id}
               message={latestAlert.msg}
               severity={latestAlert.severity as any}
               onDismiss={() => setLatestAlert(null)}

@@ -12,22 +12,22 @@ interface Props {
 }
 
 const EVENT_LABELS: Record<string, string> = {
-  tab_switch:          "Chuyển ứng dụng",
-  fullscreen_exit:     "Thoát toàn màn hình",
-  url_blocked:         "Truy cập URL bị chặn",
-  popup_attempt:       "Cố mở tab/popup",
-  devtools_opened:     "Mở DevTools",
-  no_face:             "Không thấy khuôn mặt",
-  multiple_faces:      "Nhiều khuôn mặt",
-  identity_mismatch:   "Không khớp danh tính",
-  speech_detected:     "Phát hiện giọng nói",
-  multiple_voices:     "Nhiều nguồn giọng",
-  voice_overlap:       "Chồng giọng",
-  rapid_voice_change:  "Thay đổi giọng đột ngột",
-  camera_unavailable:  "Camera không hoạt động",
-  mic_unavailable:     "Mic không hoạt động",
-  app_focus_lost:      "Mất focus cửa sổ",
-  app_close_attempt:   "Cố đóng ứng dụng",
+  tab_switch: "Chuyển ứng dụng",
+  fullscreen_exit: "Thoát toàn màn hình",
+  url_blocked: "Truy cập URL bị chặn",
+  popup_attempt: "Cố mở tab/popup",
+  devtools_opened: "Mở DevTools",
+  no_face: "Không thấy khuôn mặt",
+  multiple_faces: "Nhiều khuôn mặt",
+  identity_mismatch: "Không khớp danh tính",
+  speech_detected: "Phát hiện giọng nói",
+  multiple_voices: "Nhiều nguồn giọng",
+  voice_overlap: "Chồng giọng",
+  rapid_voice_change: "Thay đổi giọng đột ngột",
+  camera_unavailable: "Camera không hoạt động",
+  mic_unavailable: "Mic không hoạt động",
+  app_focus_lost: "Mất focus cửa sổ",
+  app_close_attempt: "Cố đóng ứng dụng",
 };
 
 export default function ViolationList({ violations }: Props) {

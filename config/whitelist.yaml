@@ -4,6 +4,8 @@
 # ============================================================
 whitelist:
   # Example exam platforms – replace with real URLs
+  - "https://azota.vn/*"
+  - "https://*.azota.vn/*"
   - "https://exam.example.edu/*"
   - "https://lms.university.edu/exam/*"
   - "https://quizlet.com/test/*"
