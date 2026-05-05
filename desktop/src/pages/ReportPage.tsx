@@ -50,11 +50,29 @@ export default function ReportPage({ sessionId, onNewExam }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const fetchReport = async (retries = 3, delayMs = 2000) => {
+    setLoading(true);
+    setError("");
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const data: ReportData = await api.getReport(sessionId);
+        setReport(data);
+        setLoading(false);
+        return;
+      } catch (e: any) {
+        console.warn(`[ReportPage] Fetch attempt ${attempt}/${retries} failed:`, e.message);
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        } else {
+          setError("Không thể tải báo cáo: " + e.message);
+        }
+      }
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    api.getReport(sessionId)
-      .then((data: ReportData) => setReport(data))
-      .catch((e: any) => setError("Không thể tải báo cáo: " + e.message))
-      .finally(() => setLoading(false));
+    fetchReport();
   }, [sessionId]);
 
   if (loading) {
@@ -70,7 +88,10 @@ export default function ReportPage({ sessionId, onNewExam }: Props) {
     return (
       <div style={styles.center}>
         <p style={{ color: "var(--color-danger)" }}>{error || "Lỗi không xác định"}</p>
-        <button className="btn btn-ghost" onClick={onNewExam}>← Về trang chủ</button>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button className="btn btn-primary" onClick={() => fetchReport()}>🔄 Thử lại</button>
+          <button className="btn btn-ghost" onClick={onNewExam}>← Về trang chủ</button>
+        </div>
       </div>
     );
   }

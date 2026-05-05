@@ -209,19 +209,21 @@ class ExamCheatController:
             return False, 0.0
 
         # ── Bộ 1: Delta dài hạn (toàn bộ buffer 20 frames) ──
+        # Jitter ở 480px tạo delta tối đa ≈ 0.14, nói chuyện tạo delta ≈ 0.25+
         baseline = min(history_all)
         delta = current_mar - baseline
-        check_delta = delta > 0.08
+        check_delta = delta > 0.15
 
         # ── Bộ 2: Biên độ dao động ngắn hạn (5 frames gần nhất) ──
+        # Jitter tạo range ≈ 0.10-0.14, nói chuyện tạo range ≈ 0.20+
         recent = history_all[-5:]
         mar_range = max(recent) - min(recent)
-        check_range = mar_range > 0.06
+        check_range = mar_range > 0.15
 
         is_moving = check_delta or check_range
 
         logger.info(
-            "[CheatCtrl] MAR=%.4f | delta=%.4f (>0.08?%s) | range_5f=%.4f (>0.06?%s) -> is_moving=%s",
+            "[CheatCtrl] MAR=%.4f | delta=%.4f (>0.15?%s) | range=%.4f (>0.15?%s) -> is_moving=%s",
             current_mar, delta, check_delta, mar_range, check_range, is_moving,
         )
 

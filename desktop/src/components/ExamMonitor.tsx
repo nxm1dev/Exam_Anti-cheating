@@ -2,15 +2,7 @@
  * src/components/ExamMonitor.tsx
  * ──────────────────────────────
  * Multimodal Exam Monitor – Gửi frame camera + cờ VAD qua WebSocket.
- *
- * Nâng cấp so với bản cũ:
- *   1. Debounce 300ms cho VAD: onSpeechStart chỉ trigger sau 300ms
- *      để loại bỏ tiếng động quá ngắn (ho, hắng, tiếng gõ).
- *   2. Gửi cờ speech_detected đơn giản (boolean) thay vì cố moi
- *      probability từ @ricky0123/vad-react (library không hỗ trợ
- *      stream probability ra ngoài).
- *   3. Backend tự quản lý bộ đếm thời gian (speech_start_time)
- *      để thực hiện debounce 1.5s cho cảnh báo Level 2.
+ * Integrated with Rolling Video Buffer for violation clip capture.
  *
  * Dependencies:
  *   npm install @ricky0123/vad-react @ricky0123/vad-web
@@ -18,11 +10,14 @@
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { useMicVAD } from "@ricky0123/vad-react";
+import { useRollingBuffer } from "../hooks/useRollingBuffer";
 
 
 interface ExamMonitorProps {
   /** WebSocket URL, vd: 'ws://localhost:8001/ws/monitor/session-123' */
   webSocketUrl: string;
+  /** Session ID for video upload */
+  sessionId: string;
   /** Callback khi có kết quả từ backend */
   onVerdict?: (verdict: MonitorVerdict) => void;
 }
@@ -35,12 +30,16 @@ export interface MonitorVerdict {
   details?: Record<string, unknown>;
 }
 
+<<<<<<< HEAD
 export interface ExamMonitorHandle {
   getSnapshot: () => string | null;
   getEvidenceVideo: () => Promise<string | null>;
 }
 
 const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ webSocketUrl, onVerdict }, ref) => {
+=======
+const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVerdict }) => {
+>>>>>>> 8063768 (desgin UI/UX & update backend)
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -79,7 +78,6 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
   }));
 
   // ── VAD debounce state ──
-  // Dùng useRef vì setTimeout callback cần giá trị mới nhất
   const speechDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const isSpeakingRef = useRef(false);
 
@@ -89,6 +87,13 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
 
   // Throttle: chỉ gửi frame mỗi 500ms (2 FPS) khi đang có speech
   const captureIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ── Rolling Buffer for violation clips ──────────────────────────────
+  const { startRecording, captureViolationClip } = useRollingBuffer({
+    sessionId,
+    bufferDuration: 10,
+    chunkIntervalMs: 2000,
+  });
 
   // ── WebSocket connection ─────────────────────────────────────────────────
   useEffect(() => {
@@ -104,6 +109,12 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
         const data: MonitorVerdict = JSON.parse(event.data);
         setVerdict(data);
         onVerdict?.(data);
+
+        // Capture violation clip for level >= 2
+        if (data.level >= 2) {
+          const violationId = `v_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          captureViolationClip(violationId);
+        }
       } catch {
         console.warn("[ExamMonitor] Invalid verdict JSON");
       }
@@ -129,11 +140,15 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
   // ── Camera init & Video Recording ──────────────────────────────────────────
   useEffect(() => {
     navigator.mediaDevices
-      .getUserMedia({ video: true, audio: false })
+      .getUserMedia({
+        video: { width: 854, height: 480, frameRate: 15 },
+        audio: true, // Include audio for rolling buffer
+      })
       .then((stream) => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
+<<<<<<< HEAD
 
         // Setup MediaRecorder for 15s ring buffer
         try {
@@ -154,6 +169,10 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
         } catch (err) {
           console.error("[ExamMonitor] MediaRecorder setup failed:", err);
         }
+=======
+        // Start rolling buffer recording with the combined stream
+        startRecording(stream);
+>>>>>>> 8063768 (desgin UI/UX & update backend)
       })
       .catch(console.error);
 
@@ -165,7 +184,6 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
   }, []);
 
   // ── Capture frame + send via WebSocket ───────────────────────────────────
-  // Scale xuống 640x480 + JPEG 70% để giảm payload (~30-50KB per frame)
   const captureAndSend = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -194,9 +212,7 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
 
   // ── Bắt đầu / dừng throttled capture ────────────────────────────────────
   const startCapture = useCallback(() => {
-    // Gửi frame đầu tiên ngay lập tức
     captureAndSend();
-    // Sau đó throttle: 1 frame mỗi 500ms (2 FPS)
     captureIntervalRef.current = setInterval(captureAndSend, 500);
   }, [captureAndSend]);
 
@@ -207,24 +223,14 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
     }
   }, []);
 
-  // ── VAD integration với DEBOUNCE 300ms ───────────────────────────────────
-  // Vấn đề: onSpeechStart trigger ngay lập tức với BẤT KỲ âm thanh nào.
-  //   - Tiếng ho: ~100ms → trigger rồi hết ngay
-  //   - Tiếng gõ phím: ~50ms → cũng trigger
-  //   → Gây false positive khi kết hợp với cross-check backend.
-  //
-  // Giải pháp: Delay 300ms trước khi chấp nhận onSpeechStart.
-  //   - Nếu onSpeechEnd hoặc onVADMisfire xảy ra trong 300ms → hủy.
-  //   - Chỉ khi âm thanh kéo dài > 300ms mới xác nhận là "speech".
+  // ── VAD integration ───────────────────────────────────────────────────
   const vad = useMicVAD({
     startOnLoad: true,
 
-    // ── WASM / ONNX file paths ──────────────────────────────────────────────
     onnxWASMBasePath: "/",
     baseAssetPath: "/",
     model: "legacy",
 
-    // Cấu hình ONNX Runtime
     ortConfig: (ort: any) => {
       ort.env.wasm.numThreads = 1;
       ort.env.wasm.wasmPaths = {
@@ -248,13 +254,11 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
         isSpeakingRef.current = false;
         setIsSpeaking(false);
         stopCapture();
-        // Gửi 1 frame cuối với speech_detected=false
         captureAndSend();
       }
     },
 
     onVADMisfire: () => {
-      // VAD misfire = false positive (âm thanh quá ngắn cho VAD)
       if (isSpeakingRef.current) {
         isSpeakingRef.current = false;
         setIsSpeaking(false);
@@ -265,7 +269,6 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
   });
 
   // Background monitoring: gửi frame mỗi 1 giây ngay cả khi im lặng
-  // để đảm bảo vẫn phát hiện được lỗi "không thấy mặt" hoặc "nhiều mặt" liên tục.
   useEffect(() => {
     const bgTimer = setInterval(() => {
       if (!isSpeakingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -397,8 +400,9 @@ const ExamMonitor = React.forwardRef<ExamMonitorHandle, ExamMonitorProps>(({ web
           {verdict.details && (
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
               MAR: {(verdict.details.mar_value as number)?.toFixed(4)} |
-              Var: {(verdict.details.mar_variance as number)?.toFixed(6)} |
-              Moving: {String(verdict.details.is_mouth_moving)}
+              Δ: {(verdict.details.mar_delta as number)?.toFixed(4)} |
+              Mouth: {String(verdict.details.is_mouth_moving)} |
+              Away: {String(verdict.details.is_looking_away)}
             </div>
           )}
         </div>

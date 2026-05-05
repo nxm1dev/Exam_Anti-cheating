@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecureExam – Dashboard Giám Sát</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #1e2530;
+      --border: #30363d;
+      --primary: #4f8ef7;
+      --success: #3fb950;
+      --warning: #f0a732;
+      --danger: #f85149;
+      --critical: #ff4d6d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-dim: #586069;
+      --font: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+
+    /* Header */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+    .header h1 { font-size: 28px; font-weight: 800; background: linear-gradient(90deg, #4f8ef7, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .header-sub { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+    .stat-value { font-size: 32px; font-weight: 800; }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Filters */
+    .filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .filter-input { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: var(--font); font-size: 14px; outline: none; min-width: 200px; }
+    .filter-input:focus { border-color: var(--primary); }
+    .filter-select { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: var(--font); cursor: pointer; }
+
+    /* Table */
+    .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: var(--surface-2); padding: 12px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); text-align: left; border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(79,142,247,0.05); }
+    tr:last-child td { border-bottom: none; }
+    .clickable { cursor: pointer; }
+
+    /* Badges */
+    .badge { display: inline-flex; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .badge-active { background: rgba(63,185,80,0.15); color: var(--success); }
+    .badge-completed { background: rgba(79,142,247,0.15); color: var(--primary); }
+    .badge-cancelled { background: rgba(255,77,109,0.2); color: var(--critical); }
+    .badge-low { background: rgba(63,185,80,0.15); color: var(--success); }
+    .badge-medium { background: rgba(240,167,50,0.15); color: var(--warning); }
+    .badge-high { background: rgba(248,81,73,0.15); color: var(--danger); }
+    .badge-critical { background: rgba(255,77,109,0.25); color: var(--critical); }
+
+    /* Detail modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px; max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto; }
+    .modal h2 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+    .modal-close { background: none; border: 1px solid var(--border); color: var(--text-muted); border-radius: 8px; padding: 8px 16px; cursor: pointer; font-family: var(--font); }
+    .modal-close:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Timeline */
+    .timeline { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
+    .timeline-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-radius: 6px; border: 1px solid var(--border); }
+    .timeline-time { font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 80px; }
+    .timeline-type { font-size: 12px; flex: 1; }
+
+    /* Video */
+    .video-link { color: var(--primary); text-decoration: none; font-size: 12px; }
+    .video-link:hover { text-decoration: underline; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--primary); animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .filters { flex-direction: column; }
+      .filter-input, .filter-select { width: 100%; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+    <div class="loading">
+      <div class="spinner"></div>
+      <p>Đang kết nối Supabase...</p>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://oyfsjrywxxfndcwjyopi.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95ZnNqcnl3eHhmbmRjd2p5b3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MDU5MTIsImV4cCI6MjA5MzQ4MTkxMn0.kaJmzXFiPNu84RtMFW2TM6w5MpRLCYGvD8qzlSLSNJw';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const EVENT_LABELS = {
+      app_focus_lost: 'Chuyển cửa sổ',
+      fullscreen_exit: 'Thoát fullscreen',
+      blocked_shortcut: 'Phím tắt bị chặn',
+      blacklisted_process: 'App bị cấm',
+      multi_monitor_blocked: 'Đa màn hình',
+      multi_monitor_connected: 'Thêm màn hình',
+      vm_detected: 'Máy ảo',
+      no_face: 'Không thấy mặt',
+      multiple_faces: 'Nhiều mặt',
+      identity_mismatch: 'Sai danh tính',
+      ai_cheating_mild: 'Đọc nhẩm',
+      ai_cheating_l1: 'Nói chuyện',
+      ai_cheating_l2: 'Nhắc bài',
+      exam_cancelled: 'Hủy thi',
+      exam_auto_submit: 'Nộp tự động',
+      url_blocked: 'URL bị chặn',
+      popup_attempt: 'Mở popup',
+    };
+
+    let allSessions = [];
+    let filteredSessions = [];
+
+    async function loadData() {
+      const { data: sessions, error } = await supabase
+        .from('exam_summary')
+        .select('*')
+        .order('started_at', { ascending: false });
+
+      if (error) {
+        document.getElementById('app').innerHTML = `
+          <div class="loading"><p style="color:var(--danger)">Lỗi: ${error.message}</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-top:8px">Hãy chạy file <code>supabase-migration.sql</code> trong Supabase SQL Editor trước.</p></div>`;
+        return;
+      }
+
+      allSessions = sessions || [];
+      filteredSessions = [...allSessions];
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      const totalSessions = filteredSessions.length;
+      const totalViolations = filteredSessions.reduce((s, r) => s + (r.total_violations || 0), 0);
+      const cancelledCount = filteredSessions.filter(r => r.is_cancelled).length;
+      const criticalTotal = filteredSessions.reduce((s, r) => s + (r.critical_count || 0), 0);
+
+      document.getElementById('app').innerHTML = `
+        <div class="header">
+          <div>
+            <h1>🛡️ SecureExam Dashboard</h1>
+            <div class="header-sub">Hệ thống giám sát bài thi trực tuyến</div>
+          </div>
+          <button class="modal-close" onclick="loadData()">🔄 Làm mới</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" style="color:var(--primary)">${totalSessions}</div>
+            <div class="stat-label">Tổng phiên thi</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color:var(--warning)">${totalViolations}</div>
+            <div class="stat-label">Tổng vi phạm</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color:var(--critical)">${cancelledCount}</div>
+            <div class="stat-label">Bị hủy thi</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color:var(--danger)">${criticalTotal}</div>
+            <div class="stat-label">Vi phạm nghiêm trọng</div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <input class="filter-input" type="text" placeholder="🔍 Tìm theo tên hoặc email..." oninput="filterSessions(this.value)" />
+          <select class="filter-select" onchange="filterByStatus(this.value)">
+            <option value="">Tất cả trạng thái</option>
+            <option value="active">Đang thi</option>
+            <option value="completed">Hoàn thành</option>
+            <option value="cancelled">Đã hủy</option>
+          </select>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Thí sinh</th>
+                <th>Email</th>
+                <th>Trạng thái</th>
+                <th>Vi phạm</th>
+                <th>Nghiêm trọng</th>
+                <th>Tab Switch</th>
+                <th>Thời gian</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredSessions.map(s => `
+                <tr class="clickable" onclick="showDetail('${s.session_id}')">
+                  <td><strong>${s.user_name || '—'}</strong></td>
+                  <td style="color:var(--text-muted);font-size:12px">${s.user_email || '—'}</td>
+                  <td><span class="badge badge-${s.status}">${s.status}${s.is_cancelled ? ' ⛔' : ''}</span></td>
+                  <td style="font-family:var(--mono)">${s.total_violations || 0}</td>
+                  <td>${(s.critical_count || 0) > 0 ? `<span class="badge badge-critical">${s.critical_count}</span>` : '<span style="color:var(--text-dim)">0</span>'}</td>
+                  <td style="font-family:var(--mono)">${s.tab_switch_count || 0}</td>
+                  <td style="font-size:12px;color:var(--text-dim)">${s.started_at ? new Date(s.started_at).toLocaleString('vi-VN') : '—'}</td>
+                  <td><span style="color:var(--primary);font-size:12px">Chi tiết →</span></td>
+                </tr>
+              `).join('')}
+              ${filteredSessions.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:var(--text-dim);padding:40px">Chưa có phiên thi nào</td></tr>' : ''}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function filterSessions(query) {
+      const q = query.toLowerCase();
+      filteredSessions = allSessions.filter(s =>
+        (s.user_name || '').toLowerCase().includes(q) ||
+        (s.user_email || '').toLowerCase().includes(q)
+      );
+      renderDashboard();
+    }
+
+    function filterByStatus(status) {
+      if (!status) {
+        filteredSessions = [...allSessions];
+      } else {
+        filteredSessions = allSessions.filter(s => s.status === status);
+      }
+      renderDashboard();
+    }
+
+    async function showDetail(sessionId) {
+      const session = allSessions.find(s => s.session_id === sessionId);
+      if (!session) return;
+
+      // Load violations for this session
+      const { data: violations } = await supabase
+        .from('exam_violations')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('occurred_at', { ascending: true });
+
+      const vList = violations || [];
+
+      const duration = session.ended_at && session.started_at
+        ? Math.round((new Date(session.ended_at) - new Date(session.started_at)) / 1000)
+        : null;
+      const durationStr = duration ? `${Math.floor(duration / 60)}m ${duration % 60}s` : 'Đang thi...';
+
+      // Count by type
+      const typeCounts = {};
+      vList.forEach(v => {
+        const key = v.event_type;
+        typeCounts[key] = (typeCounts[key] || 0) + 1;
+      });
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+      overlay.innerHTML = `
+        <div class="modal">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+            <div>
+              <h2>📋 ${session.user_name || 'Thí sinh'}</h2>
+              <div style="font-size:13px;color:var(--text-muted)">${session.user_email || ''} | Session: <code style="font-family:var(--mono)">${sessionId.slice(0,8)}…</code></div>
+            </div>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕ Đóng</button>
+          </div>
+
+          <!-- Summary -->
+          <div class="stats-grid" style="margin-bottom:20px">
+            <div class="stat-card"><div class="stat-value" style="color:var(--primary);font-size:22px">${durationStr}</div><div class="stat-label">Thời gian thi</div></div>
+            <div class="stat-card"><div class="stat-value" style="color:var(--warning);font-size:22px">${vList.length}</div><div class="stat-label">Tổng vi phạm</div></div>
+            <div class="stat-card"><div class="stat-value" style="color:var(--danger);font-size:22px">${session.tab_switch_count || 0}</div><div class="stat-label">Tab Switch</div></div>
+            <div class="stat-card"><div class="stat-value" style="font-size:22px"><span class="badge badge-${session.status}">${session.status}</span></div><div class="stat-label">Trạng thái</div></div>
+          </div>
+
+          ${session.is_cancelled ? `<div style="background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--critical)">
+            ⛔ Bài thi bị hủy: <strong>${session.cancel_reason || 'Không rõ lý do'}</strong>
+          </div>` : ''}
+
+          <!-- By type -->
+          ${Object.keys(typeCounts).length > 0 ? `
+          <div style="margin-bottom:20px">
+            <h3 style="font-size:14px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Vi phạm theo loại</h3>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${Object.entries(typeCounts).sort((a,b) => b[1] - a[1]).map(([type, count]) => `
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface-2);border-radius:6px">
+                  <span style="flex:1;font-size:13px">${EVENT_LABELS[type] || type}</span>
+                  <span style="font-family:var(--mono);font-size:13px;color:var(--text-muted)">×${count}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+
+          <!-- Timeline -->
+          <h3 style="font-size:14px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Timeline</h3>
+          <div class="timeline">
+            ${vList.length === 0 ? '<div style="text-align:center;color:var(--success);padding:20px">✓ Không có vi phạm nào</div>' : ''}
+            ${vList.map(v => `
+              <div class="timeline-item">
+                <span class="timeline-time">${new Date(v.occurred_at).toLocaleTimeString('vi-VN')}</span>
+                <span class="badge badge-${v.severity}">${v.severity}</span>
+                <span class="timeline-type">${EVENT_LABELS[v.event_type] || v.event_type}${v.message ? ` – ${v.message}` : ''}</span>
+                ${v.video_url ? `<a class="video-link" href="${v.video_url}" target="_blank">🎬 Video</a>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+    }
+
+    // Auto-refresh every 30s
+    setInterval(loadData, 30000);
+    loadData();
+  </script>
+</body>
+</html>

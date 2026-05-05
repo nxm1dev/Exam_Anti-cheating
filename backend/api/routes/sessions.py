@@ -50,7 +50,7 @@ async def end_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Mark session as ended, update violation counters."""
-    session = await _service.end_session(db, session_id, data.status)
+    session = await _service.end_session(db, session_id, data)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return session

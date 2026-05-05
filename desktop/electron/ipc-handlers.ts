@@ -1,7 +1,15 @@
 import { ipcMain } from "electron";
 import axios from "axios";
+import crypto from "crypto";
 
 import { SERVICE_URLS } from "./service-urls";
+import {
+  logSessionStart,
+  logSessionEnd,
+  logExamSubmission,
+  logViolation,
+  queueVideoUpload,
+} from "./supabase-logger";
 
 type ExamStartConfig = {
   userId: string;
@@ -17,16 +25,25 @@ type RegisterHandlersOptions = {
     userId: string;
   }) => void;
   onExamEnded?: () => void;
+  onExamLockdown?: () => Promise<{ success: boolean; error?: string }>;
+  onExamCancelled?: (sessionId: string, reason: string) => void;
 };
 
 export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void {
   const backendUrl = options.backendUrl ?? SERVICE_URLS.backend;
   const aiUrl = options.aiUrl ?? SERVICE_URLS.ai;
 
+  // ── Exam Start ─────────────────────────────────────────────────
   ipcMain.handle("exam:start", async (_event, config: ExamStartConfig) => {
     const { data } = await axios.post(`${backendUrl}/sessions/`, {
       user_id: config.userId,
       exam_url: config.examUrl,
+    });
+
+    // Log session start to Supabase
+    void logSessionStart({
+      session_id: data.id,
+      user_id: config.userId,
     });
 
     options.onExamStarted?.({
@@ -38,19 +55,69 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     return data;
   });
 
-  ipcMain.handle("exam:end", async (_event, sessionId: string) => {
+  // ── Exam Lockdown (kiosk + anti-cheat activation) ─────────────
+  ipcMain.handle("exam:lockdown", async () => {
+    if (options.onExamLockdown) {
+      const result = await options.onExamLockdown();
+      console.log("[IPC] exam:lockdown result:", result);
+      return result;
+    }
+    return { success: true };
+  });
+
+  // ── Exam End ───────────────────────────────────────────────────
+  ipcMain.handle("exam:end", async (_event, sessionId: string, violationCounts?: {
+    total_violations?: number;
+    critical_count?: number;
+    high_count?: number;
+    medium_count?: number;
+    low_count?: number;
+  }) => {
     const { data } = await axios.post(`${backendUrl}/sessions/${sessionId}/end`, {
       status: "completed",
+      ...(violationCounts || {}),
     });
 
     await axios
       .post(`${aiUrl}/analyze/audio/clear`, { session_id: sessionId })
       .catch(() => undefined);
 
+    // Log submission + session end to Supabase (awaited for reliability)
+    try {
+      await logExamSubmission(sessionId);
+      await logSessionEnd(sessionId, "completed");
+    } catch (err: any) {
+      console.error("[IPC] Supabase logging failed (non-blocking):", err.message);
+    }
+
     options.onExamEnded?.();
     return data;
   });
 
+  // ── Exam Cancel (auto-cancel due to violations) ────────────────
+  ipcMain.handle("exam:cancel", async (_event, sessionId: string, reason: string) => {
+    try {
+      await axios.post(`${backendUrl}/sessions/${sessionId}/end`, {
+        status: "cancelled",
+      });
+    } catch {
+      // Backend may not support cancel status – continue anyway
+    }
+
+    // Log cancel to Supabase
+    void logSessionEnd(sessionId, "cancelled", reason);
+    logViolation({
+      session_id: sessionId,
+      event_type: "exam_cancelled",
+      severity: "critical",
+      message: reason,
+    });
+
+    options.onExamCancelled?.(sessionId, reason);
+    return { success: true };
+  });
+
+  // ── User Management ────────────────────────────────────────────
   ipcMain.handle("user:create", async (_event, payload) => {
     try {
       const { data } = await axios.post(`${backendUrl}/users/`, payload);
@@ -102,16 +169,49 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     return data;
   });
 
+  // ── Violations ─────────────────────────────────────────────────
   ipcMain.handle("violations:batch", async (_event, items) => {
-    const { data } = await axios.post(`${backendUrl}/violations/batch`, items);
-    return data;
+    // Log to Supabase FIRST (always, regardless of backend success)
+    for (const item of items) {
+      logViolation({
+        session_id: item.session_id,
+        event_type: item.event_type,
+        severity: item.severity,
+        metadata: item.metadata,
+      });
+    }
+
+    // Then try backend (may fail if backend is down)
+    try {
+      const { data } = await axios.post(`${backendUrl}/violations/batch`, items);
+      return data;
+    } catch (err: any) {
+      console.error("[IPC] violations:batch backend error (Supabase logged OK):", err.message);
+      // Return a stub so renderer doesn't crash
+      return items.map((item: any) => ({ ...item, id: crypto.randomUUID() }));
+    }
   });
 
   ipcMain.handle("violation:log", async (_event, violation) => {
-    const { data } = await axios.post(`${backendUrl}/violations/`, violation);
-    return data;
+    // Log to Supabase FIRST
+    logViolation({
+      session_id: violation.session_id,
+      event_type: violation.event_type,
+      severity: violation.severity,
+      metadata: violation.metadata,
+    });
+
+    // Then try backend
+    try {
+      const { data } = await axios.post(`${backendUrl}/violations/`, violation);
+      return data;
+    } catch (err: any) {
+      console.error("[IPC] violation:log backend error (Supabase logged OK):", err.message);
+      return { ...violation, id: crypto.randomUUID() };
+    }
   });
 
+  // ── AI Analysis ────────────────────────────────────────────────
   ipcMain.handle("ai:analyzeFrame", async (_event, frameB64: string, referenceEmbeddingB64?: string) => {
     const { data } = await axios.post(`${aiUrl}/analyze/face/`, {
       frame_b64: frameB64,
@@ -128,10 +228,37 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     return data;
   });
 
+  // ── Report ─────────────────────────────────────────────────────
   ipcMain.handle("report:get", async (_event, sessionId: string) => {
-    const { data } = await axios.get(`${backendUrl}/reports/${sessionId}`);
-    return data;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1500;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const { data } = await axios.get(`${backendUrl}/reports/${sessionId}`);
+        return data;
+      } catch (err: any) {
+        const status = err?.response?.status;
+        console.error(`[IPC] report:get attempt ${attempt}/${MAX_RETRIES} failed (HTTP ${status}):`, err.message);
+
+        if (attempt < MAX_RETRIES && (status === 500 || status === 502 || !status)) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
+          continue;
+        }
+        throw err;
+      }
+    }
   });
+
+  // ── Video Upload ───────────────────────────────────────────────
+  ipcMain.handle(
+    "violation:uploadVideo",
+    async (_event, sessionId: string, violationId: string, videoBase64: string) => {
+      const buffer = Buffer.from(videoBase64, "base64");
+      queueVideoUpload(sessionId, violationId, buffer);
+      return { success: true };
+    }
+  );
 }
 import * as fs from "fs";
 import * as path from "path";

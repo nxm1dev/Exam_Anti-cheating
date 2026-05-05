@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.session import Session
-from api.schemas import SessionCreate
+from api.schemas import SessionCreate, SessionEnd
 
 
 class SessionService:
@@ -47,7 +47,7 @@ class SessionService:
         self,
         db: AsyncSession,
         session_id: uuid.UUID,
-        status: str = "completed",
+        data: SessionEnd,
     ) -> Session | None:
         """Mark a session as ended and update violation counters."""
         session = await self.get(db, session_id)
@@ -57,19 +57,36 @@ class SessionService:
         # Import here to avoid circular import
         from services.violation_service import ViolationService
         v_svc = ViolationService()
-        counts = await v_svc.count_by_severity(db, session_id)
+        db_counts = await v_svc.count_by_severity(db, session_id)
+        db_total = sum(db_counts.values())
+
+        # Use DB counts if available, otherwise use client-provided counts as fallback
+        if db_total > 0:
+            total = db_total
+            critical = db_counts.get("critical", 0)
+            high = db_counts.get("high", 0)
+            medium = db_counts.get("medium", 0)
+            low = db_counts.get("low", 0)
+        else:
+            # DB has 0 violations — use client counts if provided
+            total = data.total_violations or 0
+            critical = data.critical_count or 0
+            high = data.high_count or 0
+            medium = data.medium_count or 0
+            low = data.low_count or 0
 
         await db.execute(
             update(Session)
             .where(Session.id == session_id)
             .values(
-                status=status,
+                status=data.status,
                 ended_at=datetime.now(timezone.utc),
-                total_violations=sum(counts.values()),
-                critical_count=counts.get("critical", 0),
-                high_count=counts.get("high", 0),
-                medium_count=counts.get("medium", 0),
-                low_count=counts.get("low", 0),
+                total_violations=total,
+                critical_count=critical,
+                high_count=high,
+                medium_count=medium,
+                low_count=low,
             )
         )
+        await db.commit()
         return await self.get(db, session_id)

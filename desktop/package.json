@@ -7,7 +7,7 @@
     "predev": "node scripts/kill-port.js 3000",
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "webpack serve --config webpack.config.js --mode development",
-    "dev:electron": "wait-port 3000 && npm run build:electron && electron .",
+    "dev:electron": "wait-on http://localhost:3000 && npm run build:electron && electron .",
     "build": "webpack --config webpack.config.js --mode production && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "dist:win": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --win nsis --publish never",
@@ -16,6 +16,7 @@
   "dependencies": {
     "@ricky0123/vad-react": "^0.0.36",
     "@ricky0123/vad-web": "^0.0.30",
+    "@supabase/supabase-js": "^2.105.3",
     "axios": "^1.7.0",
     "onnxruntime-web": "^1.25.1",
     "react": "^18.3.0",

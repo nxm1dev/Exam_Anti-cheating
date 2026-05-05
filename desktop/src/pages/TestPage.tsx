@@ -43,7 +43,7 @@ export default function TestPage({ onBack }: { onBack: () => void }) {
               <br/> 3. Quay đi chỗ khác và nói chuyện (Mức 2).
               <br/> 4. Bật âm thanh có tiếng người nói nhưng mím chặt môi (Mức 3 - Nhắc bài).
             </p>
-            <ExamMonitor webSocketUrl={wsUrl} onVerdict={handleVerdict} />
+            <ExamMonitor webSocketUrl={wsUrl} sessionId={sessionId} onVerdict={handleVerdict} />
           </div>
         </div>
 

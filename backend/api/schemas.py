@@ -63,7 +63,13 @@ class SessionOut(BaseModel):
 
 
 class SessionEnd(BaseModel):
-    status: str = "completed"  # completed | terminated
+    status: str = "completed"  # completed | terminated | cancelled
+    # Optional client-side violation counts (fallback if batch logging failed)
+    total_violations: int | None = None
+    critical_count: int | None = None
+    high_count: int | None = None
+    medium_count: int | None = None
+    low_count: int | None = None
 
 
 # ──────────────────────────────────────────
