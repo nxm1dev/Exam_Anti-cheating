@@ -10,6 +10,7 @@
     "dev:electron": "wait-on http://localhost:3000 && npm run build:electron && electron .",
     "build": "webpack --config webpack.config.js --mode production && tsc -p tsconfig.electron.json",
     "build:electron": "tsc -p tsconfig.electron.json",
+    "sync:supabase": "npm run build:electron && electron ./scripts/drain-supabase-queue.js",
     "dist:win": "npm run build && set CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder --win nsis --publish never",
     "test": "jest"
   },

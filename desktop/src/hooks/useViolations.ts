@@ -6,6 +6,7 @@ export interface ViolationEvent {
   id: string;
   eventType: string;
   severity: string;
+  message?: string;
   metadata: Record<string, unknown>;
   timestamp: Date;
 }
@@ -21,11 +22,18 @@ export function useViolations({ sessionId, userId }: Options) {
   const pendingRef = useRef<ViolationEvent[]>([]);
 
   const addViolation = useCallback(
-    (eventType: string, severity: string, metadata: Record<string, unknown> = {}) => {
+    (
+      eventType: string,
+      severity: string,
+      metadata: Record<string, unknown> = {},
+      message?: string,
+      violationId?: string
+    ) => {
       const event: ViolationEvent = {
-        id: crypto.randomUUID(),
+        id: violationId ?? crypto.randomUUID(),
         eventType,
         severity,
+        message,
         metadata,
         timestamp: new Date(),
       };
@@ -45,10 +53,12 @@ export function useViolations({ sessionId, userId }: Options) {
     try {
       await api.logViolationsBatch(
         batch.map((violation) => ({
+          id: violation.id,
           session_id: sessionId,
           user_id: userId,
           event_type: violation.eventType,
           severity: violation.severity,
+          message: violation.message,
           metadata: violation.metadata,
         }))
       );

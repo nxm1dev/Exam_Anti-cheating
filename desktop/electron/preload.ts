@@ -7,10 +7,12 @@ export interface ExamSessionConfig {
 }
 
 export interface ViolationPayload {
+  id?: string;
   sessionId: string;
   userId: string;
   eventType: string;
   severity: string;
+  message?: string;
   metadata: Record<string, unknown>;
 }
 

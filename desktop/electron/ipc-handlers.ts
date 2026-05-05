@@ -174,9 +174,11 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     // Log to Supabase FIRST (always, regardless of backend success)
     for (const item of items) {
       logViolation({
+        id: item.id,
         session_id: item.session_id,
         event_type: item.event_type,
         severity: item.severity,
+        message: item.message,
         metadata: item.metadata,
       });
     }
@@ -195,9 +197,11 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
   ipcMain.handle("violation:log", async (_event, violation) => {
     // Log to Supabase FIRST
     logViolation({
+      id: violation.id,
       session_id: violation.session_id,
       event_type: violation.event_type,
       severity: violation.severity,
+      message: violation.message,
       metadata: violation.metadata,
     });
 

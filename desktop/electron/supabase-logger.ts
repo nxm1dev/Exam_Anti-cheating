@@ -1,20 +1,8 @@
-/**
- * electron/supabase-logger.ts
- * ────────────────────────────
- * Real-time violation logger to Supabase with offline resilience.
- *
- * Features:
- *   - Rolling send: immediate + batch flush every 10s
- *   - Offline queue: violations saved to disk, auto-flush on reconnect
- *   - Crash recovery: pending queue read on startup
- */
-
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { app, net } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-
-// ── Supabase Config ───────────────────────────────────────────────────
+import WebSocket from "ws";
 
 const SUPABASE_URL = "https://oyfsjrywxxfndcwjyopi.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -24,12 +12,55 @@ let supabase: SupabaseClient | null = null;
 
 function getSupabase(): SupabaseClient {
   if (!supabase) {
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      realtime: {
+        transport: WebSocket as any,
+      },
+    });
   }
+
   return supabase;
 }
 
-// ── Queue Paths ───────────────────────────────────────────────────────
+interface PendingViolation {
+  id: string;
+  session_id: string;
+  event_type: string;
+  severity: string;
+  message?: string;
+  metadata: Record<string, unknown>;
+  occurred_at: string;
+  retryCount: number;
+}
+
+let pendingViolations: PendingViolation[] = [];
+let flushTimer: NodeJS.Timeout | null = null;
+let networkCheckTimer: NodeJS.Timeout | null = null;
+let wasOnline = true;
+let isFlushingViolations = false;
+let isFlushingVideos = false;
+let violationFlushQueued = false;
+let videoFlushQueued = false;
+
+const BATCH_FLUSH_INTERVAL_MS = 60_000;
+const NETWORK_POLL_INTERVAL_MS = 5_000;
+const BATCH_SIZE = 20;
+const MAX_RETRY_COUNT = 50;
+const MAX_BATCH_QUEUE_BEFORE_EAGER_FLUSH = 25;
+
+function shouldFlushUrgently(violation: PendingViolation): boolean {
+  if (violation.severity === "critical") {
+    return true;
+  }
+
+  return [
+    "exam_cancelled",
+    "exam_auto_submit",
+    "multi_monitor_blocked",
+    "multi_monitor_connected",
+    "vm_detected",
+  ].includes(violation.event_type);
+}
 
 function getQueueDir(): string {
   const dir = path.join(app.getPath("userData"), "secureexam-queue");
@@ -47,81 +78,39 @@ function getVideoQueueDir(): string {
   return dir;
 }
 
-// ── Pending Violation Queue ───────────────────────────────────────────
-
-interface PendingViolation {
-  id: string;
-  session_id: string;
-  event_type: string;
-  severity: string;
-  message?: string;
-  metadata: Record<string, unknown>;
-  occurred_at: string;
-  retryCount: number;
+function countPendingVideos(): number {
+  try {
+    return fs.readdirSync(getVideoQueueDir()).filter((file) => file.endsWith(".webm")).length;
+  } catch {
+    return 0;
+  }
 }
 
-let pendingViolations: PendingViolation[] = [];
-let flushTimer: NodeJS.Timeout | null = null;
-let networkCheckTimer: NodeJS.Timeout | null = null;
-let wasOnline = true;
-
-/**
- * Initialize the logger: load pending queue from disk and start timers.
- */
 export function initSupabaseLogger(): void {
-  // Load any crash-recovery queue
   loadQueueFromDisk();
 
-  // Periodic flush every 10s
   flushTimer = setInterval(() => {
     void flushViolationQueue();
-  }, 10_000);
+    void flushVideoQueue();
+  }, BATCH_FLUSH_INTERVAL_MS);
 
-  // Network state polling every 5s
   networkCheckTimer = setInterval(() => {
     const isOnline = net.isOnline();
     if (!wasOnline && isOnline) {
-      console.log("[SupabaseLogger] Back online – flushing queues");
+      console.log("[SupabaseLogger] Back online, flushing queues");
       void flushViolationQueue();
       void flushVideoQueue();
     }
     wasOnline = isOnline;
-  }, 5_000);
+  }, NETWORK_POLL_INTERVAL_MS);
 
-  // Attempt initial flush
   void flushViolationQueue();
   void flushVideoQueue();
-
-  // Test Supabase connectivity
   void testSupabaseConnection();
 
   console.log("[SupabaseLogger] Initialized");
 }
 
-/**
- * Test Supabase connectivity at startup — helps diagnose config issues.
- */
-async function testSupabaseConnection(): Promise<void> {
-  try {
-    const { data, error } = await getSupabase()
-      .from("exam_sessions")
-      .select("id")
-      .limit(1);
-
-    if (error) {
-      console.error("[SupabaseLogger] ❌ Connection test FAILED:", error.message);
-      console.error("[SupabaseLogger]   Hint: Check that tables exist and RLS policies are set.");
-    } else {
-      console.log("[SupabaseLogger] ✅ Connection test OK (exam_sessions reachable)");
-    }
-  } catch (err: any) {
-    console.error("[SupabaseLogger] ❌ Connection test FAILED (network):", err.message);
-  }
-}
-
-/**
- * Shutdown: save pending to disk, clear timers.
- */
 export function shutdownSupabaseLogger(): void {
   if (flushTimer) clearInterval(flushTimer);
   if (networkCheckTimer) clearInterval(networkCheckTimer);
@@ -131,7 +120,32 @@ export function shutdownSupabaseLogger(): void {
   console.log("[SupabaseLogger] Shutdown (queue saved)");
 }
 
-// ── Session Logging ───────────────────────────────────────────────────
+export async function drainSupabaseQueues(): Promise<{
+  pendingViolations: number;
+  pendingVideos: number;
+}> {
+  await flushViolationQueue();
+  await flushVideoQueue();
+
+  return {
+    pendingViolations: pendingViolations.length,
+    pendingVideos: countPendingVideos(),
+  };
+}
+
+async function testSupabaseConnection(): Promise<void> {
+  try {
+    const { error } = await getSupabase().from("exam_sessions").select("id").limit(1);
+    if (error) {
+      console.error("[SupabaseLogger] Connection test failed:", error.message);
+      return;
+    }
+
+    console.log("[SupabaseLogger] Connection test OK");
+  } catch (err: any) {
+    console.error("[SupabaseLogger] Connection test network error:", err.message);
+  }
+}
 
 export async function logSessionStart(payload: {
   session_id: string;
@@ -157,9 +171,10 @@ export async function logSessionStart(payload: {
 
     if (error) {
       console.error("[SupabaseLogger] logSessionStart error:", error.message);
-    } else {
-      console.log("[SupabaseLogger] Session start logged:", payload.session_id);
+      return;
     }
+
+    console.log("[SupabaseLogger] Session start logged:", payload.session_id);
   } catch (err: any) {
     console.error("[SupabaseLogger] logSessionStart network error:", err.message);
   }
@@ -171,8 +186,8 @@ export async function logSessionEnd(
   cancelReason?: string,
   tabSwitchCount?: number
 ): Promise<void> {
-  // Final flush before closing
   await flushViolationQueue();
+  await flushVideoQueue();
 
   try {
     const update: Record<string, unknown> = {
@@ -180,6 +195,7 @@ export async function logSessionEnd(
       ended_at: new Date().toISOString(),
       is_cancelled: status === "cancelled",
     };
+
     if (cancelReason) update.cancel_reason = cancelReason;
     if (tabSwitchCount !== undefined) update.tab_switch_count = tabSwitchCount;
 
@@ -196,37 +212,30 @@ export async function logSessionEnd(
   }
 }
 
-/**
- * Log an explicit "exam submitted" event to exam_violations.
- * This ensures Supabase always has a record when a candidate submits.
- */
 export async function logExamSubmission(sessionId: string): Promise<void> {
   try {
     const { error } = await getSupabase().from("exam_violations").insert({
       session_id: sessionId,
       event_type: "exam_submitted",
       severity: "low",
-      message: "Thí sinh đã nộp bài thi",
+      message: "Thi sinh da nop bai thi",
       metadata: { submitted_at: new Date().toISOString() },
       occurred_at: new Date().toISOString(),
     });
 
     if (error) {
       console.error("[SupabaseLogger] logExamSubmission error:", error.message);
-    } else {
-      console.log("[SupabaseLogger] Exam submission logged:", sessionId);
+      return;
     }
+
+    console.log("[SupabaseLogger] Exam submission logged:", sessionId);
   } catch (err: any) {
     console.error("[SupabaseLogger] logExamSubmission network error:", err.message);
   }
 }
 
-// ── Violation Logging ─────────────────────────────────────────────────
-
-/**
- * Log a single violation. Sends immediately if online, otherwise queues.
- */
 export function logViolation(violation: {
+  id?: string;
   session_id: string;
   event_type: string;
   severity: string;
@@ -234,7 +243,7 @@ export function logViolation(violation: {
   metadata?: Record<string, unknown>;
 }): void {
   const entry: PendingViolation = {
-    id: crypto.randomUUID(),
+    id: violation.id ?? crypto.randomUUID(),
     session_id: violation.session_id,
     event_type: violation.event_type,
     severity: violation.severity,
@@ -247,15 +256,11 @@ export function logViolation(violation: {
   pendingViolations.push(entry);
   saveQueueToDisk();
 
-  // Try to send immediately
-  if (net.isOnline()) {
+  if (shouldFlushUrgently(entry) || pendingViolations.length >= MAX_BATCH_QUEUE_BEFORE_EAGER_FLUSH) {
     void flushViolationQueue();
   }
 }
 
-/**
- * Update violation count on session record.
- */
 export async function updateSessionViolationCount(
   sessionId: string,
   totalViolations: number,
@@ -265,73 +270,104 @@ export async function updateSessionViolationCount(
     const update: Record<string, unknown> = { total_violations: totalViolations };
     if (tabSwitchCount !== undefined) update.tab_switch_count = tabSwitchCount;
 
-    await getSupabase()
-      .from("exam_sessions")
-      .update(update)
-      .eq("session_id", sessionId);
+    await getSupabase().from("exam_sessions").update(update).eq("session_id", sessionId);
   } catch {
-    // Non-critical, will sync on next flush
+    // Non-critical, will sync on next attempt.
   }
 }
-
-// ── Flush Queue ───────────────────────────────────────────────────────
 
 async function flushViolationQueue(): Promise<void> {
   if (pendingViolations.length === 0) return;
-  if (!net.isOnline()) return;
+  if (isFlushingViolations) {
+    violationFlushQueued = true;
+    return;
+  }
 
-  const batch = pendingViolations.splice(0);
-  const failedItems: PendingViolation[] = [];
+  isFlushingViolations = true;
+  violationFlushQueued = false;
 
-  // Send in chunks of 20 to avoid oversized payloads
-  const CHUNK_SIZE = 20;
-  for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
-    const chunk = batch.slice(i, i + CHUNK_SIZE);
-    const rows = chunk.map((v) => ({
-      session_id: v.session_id,
-      event_type: v.event_type,
-      severity: v.severity,
-      message: v.message || null,
-      metadata: v.metadata,
-      occurred_at: v.occurred_at,
-    }));
+  try {
+    const batch = pendingViolations.splice(0);
+    const failedItems: PendingViolation[] = [];
+
+    for (let i = 0; i < batch.length; i += BATCH_SIZE) {
+      const chunk = batch.slice(i, i + BATCH_SIZE);
+      const rows = chunk.map((v) => ({
+        id: v.id,
+        session_id: v.session_id,
+        event_type: v.event_type,
+        severity: v.severity,
+        message: v.message || null,
+        metadata: v.metadata,
+        occurred_at: v.occurred_at,
+      }));
+
+      try {
+        const { error } = await getSupabase().from("exam_violations").upsert(rows, {
+          onConflict: "id",
+          ignoreDuplicates: true,
+        });
+
+        if (error) {
+          console.error("[SupabaseLogger] Flush batch error:", error.message);
+          await flushChunkIndividually(chunk, failedItems);
+        }
+      } catch (err: any) {
+        console.error("[SupabaseLogger] Flush batch network error:", err.message);
+        await flushChunkIndividually(chunk, failedItems);
+      }
+    }
+
+    if (failedItems.length > 0) {
+      pendingViolations.unshift(...failedItems);
+    }
+  } finally {
+    saveQueueToDisk();
+    isFlushingViolations = false;
+  }
+
+  if (violationFlushQueued && pendingViolations.length > 0) {
+    violationFlushQueued = false;
+    void flushViolationQueue();
+  }
+}
+
+async function flushChunkIndividually(
+  chunk: PendingViolation[],
+  failedItems: PendingViolation[]
+): Promise<void> {
+  for (const item of chunk) {
+    const row = {
+      id: item.id,
+      session_id: item.session_id,
+      event_type: item.event_type,
+      severity: item.severity,
+      message: item.message || null,
+      metadata: item.metadata,
+      occurred_at: item.occurred_at,
+    };
 
     try {
-      const { error } = await getSupabase().from("exam_violations").insert(rows);
-      if (error) {
-        console.error("[SupabaseLogger] Flush error:", error.message);
-        // Re-queue with incremented retry
-        for (const item of chunk) {
-          item.retryCount++;
-          if (item.retryCount < 50) {
-            failedItems.push(item);
-          }
-        }
+      const { error } = await getSupabase().from("exam_violations").insert(row);
+      if (!error || isDuplicateKeyError(error)) {
+        continue;
+      }
+
+      console.error("[SupabaseLogger] Flush row error:", error.message);
+      item.retryCount++;
+      if (item.retryCount < MAX_RETRY_COUNT) {
+        failedItems.push(item);
       }
     } catch (err: any) {
-      console.error("[SupabaseLogger] Flush network error:", err.message);
-      for (const item of chunk) {
-        item.retryCount++;
-        if (item.retryCount < 50) {
-          failedItems.push(item);
-        }
+      console.error("[SupabaseLogger] Flush row network error:", err.message);
+      item.retryCount++;
+      if (item.retryCount < MAX_RETRY_COUNT) {
+        failedItems.push(item);
       }
     }
   }
-
-  // Put failed items back
-  if (failedItems.length > 0) {
-    pendingViolations.unshift(...failedItems);
-  }
-
-  saveQueueToDisk();
 }
 
-// ── Video Queue ───────────────────────────────────────────────────────
-
-/**
- * Queue a video blob for upload. Saves to disk immediately.
- */
 export function queueVideoUpload(
   sessionId: string,
   violationId: string,
@@ -339,9 +375,8 @@ export function queueVideoUpload(
 ): void {
   const filename = `${sessionId}_${violationId}_${Date.now()}.webm`;
   const filepath = path.join(getVideoQueueDir(), filename);
-
-  // Save metadata alongside video
   const metaPath = filepath + ".meta.json";
+
   fs.writeFileSync(filepath, videoBuffer);
   fs.writeFileSync(
     metaPath,
@@ -349,18 +384,15 @@ export function queueVideoUpload(
   );
 
   console.log(`[SupabaseLogger] Video queued: ${filename} (${videoBuffer.length} bytes)`);
-
-  if (net.isOnline()) {
-    void uploadSingleVideo(filepath, metaPath);
-  }
+  void flushVideoQueue();
 }
 
 async function uploadSingleVideo(filepath: string, metaPath: string): Promise<boolean> {
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
     const videoData = fs.readFileSync(filepath);
-
     const storagePath = `${meta.sessionId}/${meta.filename}`;
+
     const { error: uploadError } = await getSupabase()
       .storage.from("violation-videos")
       .upload(storagePath, videoData, {
@@ -373,25 +405,35 @@ async function uploadSingleVideo(filepath: string, metaPath: string): Promise<bo
       return false;
     }
 
-    // Get public URL
     const { data: urlData } = getSupabase()
       .storage.from("violation-videos")
       .getPublicUrl(storagePath);
 
-    // Update violation record with video URL
     if (urlData?.publicUrl) {
-      await getSupabase()
+      const { data: updatedRow, error: updateError } = await getSupabase()
         .from("exam_violations")
         .update({ video_url: urlData.publicUrl })
-        .eq("session_id", meta.sessionId)
-        .eq("id", meta.violationId);
+        .eq("id", meta.violationId)
+        .select("id")
+        .maybeSingle();
+
+      if (updateError) {
+        console.error("[SupabaseLogger] Video URL update error:", updateError.message);
+        return false;
+      }
+
+      if (!updatedRow) {
+        console.warn("[SupabaseLogger] Violation row not ready for video URL update:", meta.violationId);
+        return false;
+      }
     }
 
-    // Cleanup files on success
     try {
       fs.unlinkSync(filepath);
       fs.unlinkSync(metaPath);
-    } catch { /* ignore cleanup errors */ }
+    } catch {
+      // Ignore cleanup failures.
+    }
 
     console.log(`[SupabaseLogger] Video uploaded: ${storagePath}`);
     return true;
@@ -402,31 +444,43 @@ async function uploadSingleVideo(filepath: string, metaPath: string): Promise<bo
 }
 
 async function flushVideoQueue(): Promise<void> {
-  if (!net.isOnline()) return;
-
-  const videoDir = getVideoQueueDir();
-  let files: string[];
-  try {
-    files = fs.readdirSync(videoDir).filter((f) => f.endsWith(".webm"));
-  } catch {
+  if (isFlushingVideos) {
+    videoFlushQueued = true;
     return;
   }
 
-  for (const file of files) {
-    const filepath = path.join(videoDir, file);
-    const metaPath = filepath + ".meta.json";
+  isFlushingVideos = true;
+  videoFlushQueued = false;
+  await flushViolationQueue();
 
-    if (!fs.existsSync(metaPath)) {
-      // Orphan video without metadata – remove
-      try { fs.unlinkSync(filepath); } catch { /* ignore */ }
-      continue;
+  try {
+    const files = fs.readdirSync(getVideoQueueDir()).filter((file) => file.endsWith(".webm"));
+    for (const file of files) {
+      const filepath = path.join(getVideoQueueDir(), file);
+      const metaPath = filepath + ".meta.json";
+
+      if (!fs.existsSync(metaPath)) {
+        try {
+          fs.unlinkSync(filepath);
+        } catch {
+          // Ignore cleanup failures.
+        }
+        continue;
+      }
+
+      await uploadSingleVideo(filepath, metaPath);
     }
+  } catch {
+    // Directory may not exist yet.
+  } finally {
+    isFlushingVideos = false;
+  }
 
-    await uploadSingleVideo(filepath, metaPath);
+  if (videoFlushQueued && countPendingVideos() > 0) {
+    videoFlushQueued = false;
+    void flushVideoQueue();
   }
 }
-
-// ── Disk Persistence ──────────────────────────────────────────────────
 
 function saveQueueToDisk(): void {
   try {
@@ -445,7 +499,10 @@ function loadQueueFromDisk(): void {
       console.log(`[SupabaseLogger] Recovered ${loaded.length} pending violations from disk`);
     }
   } catch {
-    // No existing queue – fresh start
     pendingViolations = [];
   }
+}
+
+function isDuplicateKeyError(error: { code?: string; message?: string } | null | undefined): boolean {
+  return error?.code === "23505" || (error?.message || "").includes("duplicate key value");
 }

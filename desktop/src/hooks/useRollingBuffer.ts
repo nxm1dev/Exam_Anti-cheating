@@ -12,7 +12,7 @@ const api = (window as any).electronAPI;
 
 interface UseRollingBufferOptions {
   sessionId: string;
-  /** Buffer duration in seconds (default 10) */
+  /** Seconds of pre-violation footage to keep in memory */
   bufferDuration?: number;
   /** Chunk interval in ms (default 2000) */
   chunkIntervalMs?: number;
@@ -25,14 +25,14 @@ interface RollingBufferAPI {
   startRecording: (stream: MediaStream) => void;
   /** Stop recording and cleanup */
   stopRecording: () => void;
-  /** Capture a violation clip (~10s) and upload */
+  /** Capture a violation clip (~10s total) and upload */
   captureViolationClip: (violationId: string) => void;
 }
 
 export function useRollingBuffer({
   sessionId,
-  bufferDuration = 10,
-  chunkIntervalMs = 2000,
+  bufferDuration = 5,
+  chunkIntervalMs = 1000,
 }: UseRollingBufferOptions): RollingBufferAPI {
   const [isRecording, setIsRecording] = useState(false);
 
@@ -43,6 +43,37 @@ export function useRollingBuffer({
   const captureChunksRef = useRef<Blob[]>([]);
   const captureViolationIdRef = useRef<string>("");
   const captureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const preCaptureChunksRef = useRef<Blob[]>([]);
+
+  const uploadCapturedChunks = useCallback(async () => {
+    const allChunks = [...preCaptureChunksRef.current, ...captureChunksRef.current];
+    preCaptureChunksRef.current = [];
+    captureChunksRef.current = [];
+
+    if (allChunks.length === 0) {
+      console.warn("[RollingBuffer] No chunks to capture");
+      return;
+    }
+
+    const blob = new Blob(allChunks, { type: "video/webm" });
+    console.log(`[RollingBuffer] Clip size: ${(blob.size / 1024).toFixed(1)}KB`);
+
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < uint8.byteLength; i++) {
+      binary += String.fromCharCode(uint8[i]);
+    }
+    const base64 = btoa(binary);
+
+    await api.uploadViolationVideo(
+      sessionId,
+      captureViolationIdRef.current,
+      base64
+    );
+
+    console.log("[RollingBuffer] Clip uploaded successfully");
+  }, [sessionId]);
 
   const startRecording = useCallback(
     (stream: MediaStream) => {
@@ -83,20 +114,27 @@ export function useRollingBuffer({
   );
 
   const stopRecording = useCallback(() => {
+    if (captureTimeoutRef.current) {
+      clearTimeout(captureTimeoutRef.current);
+      captureTimeoutRef.current = null;
+    }
+
+    if (capturingRef.current) {
+      capturingRef.current = false;
+      void uploadCapturedChunks().catch((err: any) => {
+        console.error("[RollingBuffer] Finalize upload failed:", err.message);
+      });
+    }
+
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
     }
     chunksRef.current = [];
-    capturingRef.current = false;
-    captureChunksRef.current = [];
-    if (captureTimeoutRef.current) {
-      clearTimeout(captureTimeoutRef.current);
-      captureTimeoutRef.current = null;
-    }
+    preCaptureChunksRef.current = [];
     setIsRecording(false);
     console.log("[RollingBuffer] Stopped recording");
-  }, []);
+  }, [uploadCapturedChunks]);
 
   const captureViolationClip = useCallback(
     (violationId: string) => {
@@ -108,49 +146,23 @@ export function useRollingBuffer({
       capturingRef.current = true;
       captureViolationIdRef.current = violationId;
 
-      // Take the current buffer content (= ~5s of pre-violation footage)
-      const preChunks = [...chunksRef.current];
+      // Keep the current ring buffer as the pre-violation window.
+      preCaptureChunksRef.current = [...chunksRef.current];
       captureChunksRef.current = [];
 
-      // Wait 5s to collect post-violation footage
+      // Collect an additional post-violation window of equal duration.
       captureTimeoutRef.current = setTimeout(async () => {
         capturingRef.current = false;
+        captureTimeoutRef.current = null;
 
-        // Merge pre + post chunks into single blob
-        const allChunks = [...preChunks, ...captureChunksRef.current];
-        captureChunksRef.current = [];
-
-        if (allChunks.length === 0) {
-          console.warn("[RollingBuffer] No chunks to capture");
-          return;
-        }
-
-        const blob = new Blob(allChunks, { type: "video/webm" });
-        console.log(`[RollingBuffer] Clip size: ${(blob.size / 1024).toFixed(1)}KB`);
-
-        // Convert to base64 and send via IPC
         try {
-          const arrayBuffer = await blob.arrayBuffer();
-          const uint8 = new Uint8Array(arrayBuffer);
-          let binary = "";
-          for (let i = 0; i < uint8.byteLength; i++) {
-            binary += String.fromCharCode(uint8[i]);
-          }
-          const base64 = btoa(binary);
-
-          await api.uploadViolationVideo(
-            sessionId,
-            captureViolationIdRef.current,
-            base64
-          );
-
-          console.log("[RollingBuffer] Clip uploaded successfully");
+          await uploadCapturedChunks();
         } catch (err: any) {
           console.error("[RollingBuffer] Upload failed:", err.message);
         }
-      }, 5000);
+      }, bufferDuration * 1000);
     },
-    [sessionId]
+    [bufferDuration, uploadCapturedChunks]
   );
 
   // Cleanup on unmount

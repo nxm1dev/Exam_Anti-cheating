@@ -19,7 +19,7 @@ interface ExamMonitorProps {
   /** Session ID for video upload */
   sessionId: string;
   /** Callback khi có kết quả từ backend */
-  onVerdict?: (verdict: MonitorVerdict) => void;
+  onVerdict?: (verdict: MonitorVerdict, violationId?: string) => void;
 }
 
 /** Verdict từ backend */
@@ -49,8 +49,8 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
   // ── Rolling Buffer for violation clips ──────────────────────────────
   const { startRecording, captureViolationClip } = useRollingBuffer({
     sessionId,
-    bufferDuration: 10,
-    chunkIntervalMs: 2000,
+    bufferDuration: 5,
+    chunkIntervalMs: 1000,
   });
 
   // ── WebSocket connection ─────────────────────────────────────────────────
@@ -66,11 +66,11 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
       try {
         const data: MonitorVerdict = JSON.parse(event.data);
         setVerdict(data);
-        onVerdict?.(data);
+        const violationId = data.level >= 3 ? crypto.randomUUID() : undefined;
+        onVerdict?.(data, violationId);
 
-        // Capture violation clip for level >= 2
-        if (data.level >= 2) {
-          const violationId = `v_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        // Capture violation clip for level >= 3
+        if (violationId) {
           captureViolationClip(violationId);
         }
       } catch {

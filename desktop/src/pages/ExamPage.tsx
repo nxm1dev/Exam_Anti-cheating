@@ -64,8 +64,14 @@ export default function ExamPage({
   });
 
   const handleViolation = useCallback(
-    (type: string, severity: string, metadata: Record<string, unknown>, customMsg?: string) => {
-      addViolation(type, severity, metadata);
+    (
+      type: string,
+      severity: string,
+      metadata: Record<string, unknown>,
+      customMsg?: string,
+      violationId?: string
+    ) => {
+      addViolation(type, severity, metadata, customMsg, violationId);
 
       const messages: Record<string, string> = {
         multiple_faces: "Phát hiện nhiều khuôn mặt trong khung hình!",
@@ -95,7 +101,7 @@ export default function ExamPage({
   );
 
   // ── Multimodal Monitoring Verdict ──────────────────────────────
-  const handleMonitorVerdict = useCallback((verdict: MonitorVerdict) => {
+  const handleMonitorVerdict = useCallback((verdict: MonitorVerdict, violationId?: string) => {
     setMonitorVerdict(verdict);
 
     if (verdict.level >= 1) {
@@ -103,7 +109,7 @@ export default function ExamPage({
       let type = "ai_cheating_mild";
 
       if (verdict.level === 3) {
-        severity = "high";
+        severity = "critical";
         type = "ai_cheating_l2";
       } else if (verdict.level === 2) {
         severity = "medium";
@@ -112,11 +118,11 @@ export default function ExamPage({
 
       const faceCount = verdict.details?.face_count as number;
       if (faceCount === 0) {
-        handleViolation("no_face", "high", verdict.details || {}, verdict.message);
+        handleViolation("no_face", "high", verdict.details || {}, verdict.message, violationId);
       } else if (faceCount > 1) {
-        handleViolation("multiple_faces", "high", verdict.details || {}, verdict.message);
+        handleViolation("multiple_faces", "high", verdict.details || {}, verdict.message, violationId);
       } else {
-        handleViolation(type, severity, verdict.details || {}, verdict.message);
+        handleViolation(type, severity, verdict.details || {}, verdict.message, violationId);
       }
     }
   }, [handleViolation]);
@@ -280,7 +286,7 @@ export default function ExamPage({
 
   const handleAutoSubmit = async (reason: string) => {
     if (isCancelledRef.current) return;
-    addViolation("exam_auto_submit", "critical", { reason });
+    addViolation("exam_auto_submit", "critical", { reason }, reason);
     await flushViolations();
     await api.endExam(sessionId, getViolationCounts());
     onExamEnd();
@@ -290,7 +296,7 @@ export default function ExamPage({
     if (isCancelledRef.current) return;
     isCancelledRef.current = true;
 
-    addViolation("exam_cancelled", "critical", { reason, tab_switch_count: tabSwitchCount });
+    addViolation("exam_cancelled", "critical", { reason, tab_switch_count: tabSwitchCount }, reason);
     await flushViolations();
     await api.cancelExam(sessionId, reason);
     onExamEnd();
