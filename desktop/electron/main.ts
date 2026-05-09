@@ -19,6 +19,7 @@ import {
   logSessionEnd,
   updateSessionViolationCount,
 } from "./supabase-logger";
+import { shouldPersistViolation } from "./violation-policy";
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -367,6 +368,10 @@ async function logViolationToBackend(partial: {
   metadata: Record<string, unknown>;
 }) {
   if (!currentSession) {
+    return;
+  }
+
+  if (!shouldPersistViolation(partial.event_type, partial.severity, partial.metadata)) {
     return;
   }
 

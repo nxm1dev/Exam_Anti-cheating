@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SecureExam Dashboard</title>
+  <title>SecureExam - Bảng điều phối giám sát</title>
   <style>
     :root {
       --bg: #09111d;
-      --bg-accent: radial-gradient(circle at top left, rgba(33, 105, 255, 0.22), transparent 32%), radial-gradient(circle at top right, rgba(255, 91, 121, 0.16), transparent 28%), #09111d;
+      --bg-accent:
+        radial-gradient(circle at top left, rgba(33, 105, 255, 0.22), transparent 32%),
+        radial-gradient(circle at top right, rgba(255, 91, 121, 0.16), transparent 28%),
+        #09111d;
       --surface: rgba(12, 20, 34, 0.86);
       --surface-2: rgba(20, 30, 48, 0.92);
       --surface-3: rgba(28, 41, 61, 0.94);
@@ -22,12 +25,13 @@
       --critical: #ff5d7d;
       --shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
       --radius: 20px;
-      --font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --font: "Be Vietnam Pro", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
       --mono: Consolas, "Courier New", monospace;
     }
 
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
+
     body {
       font-family: var(--font);
       background: var(--bg-accent);
@@ -45,6 +49,7 @@
       grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
       gap: 20px;
       margin-bottom: 20px;
+      align-items: start;
     }
 
     .panel {
@@ -59,6 +64,7 @@
       padding: 28px;
       position: relative;
       overflow: hidden;
+      align-self: start;
     }
 
     .hero-main::after {
@@ -142,6 +148,9 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      max-height: 640px;
+      overflow: auto;
+      padding-right: 4px;
     }
 
     .feed-item {
@@ -210,6 +219,7 @@
       display: grid;
       grid-template-columns: minmax(0, 2fr) minmax(320px, 0.95fr);
       gap: 20px;
+      align-items: start;
     }
 
     .table-panel {
@@ -247,6 +257,7 @@
     }
 
     .input { min-width: 220px; }
+
     .input:focus,
     .select:focus,
     .button:focus {
@@ -559,13 +570,14 @@
   <div class="page" id="app">
     <div class="loading panel">
       <div class="spinner"></div>
-      <div>Dang ket noi Supabase va tai du lieu giam sat...</div>
+      <div>Đang kết nối Supabase và tải dữ liệu giám sát...</div>
     </div>
   </div>
 
   <script>
     const SUPABASE_URL = "https://oyfsjrywxxfndcwjyopi.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95ZnNqcnl3eHhmbmRjd2p5b3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MDU5MTIsImV4cCI6MjA5MzQ4MTkxMn0.kaJmzXFiPNu84RtMFW2TM6w5MpRLCYGvD8qzlSLSNJw";
+
     async function supabaseSelect(table, query = {}) {
       const params = new URLSearchParams();
       params.set("select", query.select || "*");
@@ -608,26 +620,26 @@
     }
 
     const EVENT_LABELS = {
-      app_focus_lost: "Roi cua so thi",
-      fullscreen_exit: "Thoat fullscreen",
-      blocked_shortcut: "Phim tat bi chan",
-      blacklisted_process: "Ung dung bi cam",
-      multi_monitor_blocked: "Da man hinh truoc khi thi",
-      multi_monitor_connected: "Gan them man hinh",
-      vm_detected: "Phat hien may ao",
-      no_face: "Khong thay khuon mat",
-      multiple_faces: "Nhieu khuon mat",
-      identity_mismatch: "Sai dinh danh",
-      voice_overlap: "Nhieu nguoi noi cung luc",
-      ai_cheating_mild: "Doc nham / tieng noi nho",
-      ai_cheating_l1: "Noi chuyen bat thuong",
-      ai_cheating_l2: "Nghi nhac bai",
-      exam_cancelled: "Huy bai thi",
-      exam_auto_submit: "Nop bai tu dong",
-      exam_submitted: "Thi sinh nop bai",
-      url_blocked: "URL bi chan",
-      popup_attempt: "Mo popup",
-      process_killed: "Dong app bi cam"
+      app_focus_lost: "Rời cửa sổ thi",
+      fullscreen_exit: "Thoát toàn màn hình",
+      blocked_shortcut: "Phím tắt bị chặn",
+      blacklisted_process: "Ứng dụng bị cấm",
+      multi_monitor_blocked: "Đa màn hình trước khi thi",
+      multi_monitor_connected: "Gắn thêm màn hình",
+      vm_detected: "Phát hiện máy ảo",
+      no_face: "Không thấy khuôn mặt",
+      multiple_faces: "Nhiều khuôn mặt",
+      identity_mismatch: "Sai định danh",
+      voice_overlap: "Nhiều người nói cùng lúc",
+      ai_cheating_mild: "Đọc nhẩm / tiếng nói nhỏ",
+      ai_cheating_l1: "Nói chuyện bất thường",
+      ai_cheating_l2: "Nghi nhắc bài",
+      exam_cancelled: "Hủy bài thi",
+      exam_auto_submit: "Nộp bài tự động",
+      exam_submitted: "Thí sinh nộp bài",
+      url_blocked: "URL bị chặn",
+      popup_attempt: "Mở popup",
+      process_killed: "Đóng ứng dụng bị cấm"
     };
 
     const state = {
@@ -673,15 +685,15 @@
 
     function riskForSession(session) {
       if (session.is_cancelled || (session.critical_count || 0) > 0) {
-        return { key: "critical", label: "Critical", color: "var(--critical)" };
+        return { key: "critical", label: "Nguy cấp", color: "var(--critical)" };
       }
       if ((session.high_count || 0) > 0) {
-        return { key: "high", label: "High", color: "var(--danger)" };
+        return { key: "high", label: "Cao", color: "var(--danger)" };
       }
       if ((session.medium_count || 0) > 0 || (session.tab_switch_count || 0) > 0) {
-        return { key: "medium", label: "Watch", color: "var(--warning)" };
+        return { key: "medium", label: "Theo dõi", color: "var(--warning)" };
       }
-      return { key: "low", label: "Clean", color: "var(--success)" };
+      return { key: "low", label: "Ổn định", color: "var(--success)" };
     }
 
     function statusClass(status) {
@@ -721,27 +733,28 @@
       return `
         <div class="hero">
           <section class="panel hero-main">
-            <div class="eyebrow">SecureExam Live</div>
-            <h1>Giam sat vi pham theo tung session, tung su kien, tung clip.</h1>
+            <div class="eyebrow">Theo dõi trực tiếp</div>
+            <h1>Giám sát vi phạm theo từng session, từng sự kiện, từng clip.</h1>
             <div class="hero-copy">
-              Dashboard nay doc truc tiep tu Supabase de tong hop phien thi, muc do rui ro,
-              va timeline vi pham. Clip video se xuat hien o cac su kien nghiem trong da duoc ghi bang rolling buffer.
+              Dashboard này đọc trực tiếp từ Supabase để tổng hợp phiên thi, mức độ rủi ro
+              và timeline vi phạm. Clip video sẽ xuất hiện ở các sự kiện nghiêm trọng đã được
+              ghi bằng rolling buffer.
             </div>
             <div class="hero-foot">
-              <div class="pill"><strong>${totalSessions}</strong><span>tong session</span></div>
-              <div class="pill"><strong>${totalViolations}</strong><span>tong log vi pham</span></div>
+              <div class="pill"><strong>${totalSessions}</strong><span>tổng session</span></div>
+              <div class="pill"><strong>${totalViolations}</strong><span>tổng log vi phạm</span></div>
               <div class="pill"><strong>${criticalViolations}</strong><span>high + critical</span></div>
-              <div class="pill"><strong>${recentSession ? formatDate(recentSession.started_at) : "—"}</strong><span>lan cap nhat moi nhat</span></div>
+              <div class="pill"><strong>${recentSession ? formatDate(recentSession.started_at) : "—"}</strong><span>lần cập nhật mới nhất</span></div>
             </div>
           </section>
 
           <aside class="panel hero-side">
-            <h2>Recent Critical Feed</h2>
+            <h2>Dòng sự kiện nổi bật</h2>
             <div class="feed">
               ${state.recentCritical.length === 0 ? `
                 <div class="feed-item">
-                  <div class="feed-title">Chua co su kien high / critical</div>
-                  <div class="feed-meta">Khi xuat hien vi pham nghiem trong, danh sach nay se cap nhat tuc thi.</div>
+                  <div class="feed-title">Chưa có sự kiện mức cao</div>
+                  <div class="feed-meta">Khi xuất hiện vi phạm nghiêm trọng, danh sách này sẽ cập nhật tức thì.</div>
                 </div>
               ` : state.recentCritical.map((item) => `
                 <div class="feed-item">
@@ -759,34 +772,34 @@
 
         <section class="stats-grid">
           <div class="stat-card">
-            <div class="stat-label">Active Sessions</div>
+            <div class="stat-label">Phiên đang thi</div>
             <div class="stat-value" style="color: var(--success)">${activeSessions}</div>
-            <div class="stat-sub">Dang thi ngay luc nay</div>
+            <div class="stat-sub">Đang hoạt động tại thời điểm hiện tại</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Cancelled</div>
+            <div class="stat-label">Phiên bị hủy</div>
             <div class="stat-value" style="color: var(--critical)">${cancelledSessions}</div>
-            <div class="stat-sub">Bi huy hoac auto-cancel</div>
+            <div class="stat-sub">Đã hủy thủ công hoặc tự động</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Monitored</div>
+            <div class="stat-label">Phiên có cảnh báo</div>
             <div class="stat-value" style="color: var(--warning)">${monitoredSessions}</div>
-            <div class="stat-sub">Session co it nhat 1 violation</div>
+            <div class="stat-sub">Có ít nhất một vi phạm đã lưu</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Total Violations</div>
+            <div class="stat-label">Tổng cảnh báo</div>
             <div class="stat-value" style="color: var(--primary)">${totalViolations}</div>
-            <div class="stat-sub">Tong hop tu exam_summary</div>
+            <div class="stat-sub">Tổng hợp trực tiếp từ dữ liệu giám sát</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Critical Count</div>
+            <div class="stat-label">Mức nguy cấp</div>
             <div class="stat-value" style="color: var(--critical)">${state.sessions.reduce((sum, item) => sum + (item.critical_count || 0), 0)}</div>
-            <div class="stat-sub">Level nguy hiem nhat</div>
+            <div class="stat-sub">Cần xem lại ngay</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">High Count</div>
+            <div class="stat-label">Mức cao</div>
             <div class="stat-value" style="color: var(--danger)">${state.sessions.reduce((sum, item) => sum + (item.high_count || 0), 0)}</div>
-            <div class="stat-sub">Can xem lai ngay</div>
+            <div class="stat-sub">Có dấu hiệu bất thường rõ rệt</div>
           </div>
         </section>
       `;
@@ -798,25 +811,25 @@
           <div class="panel table-panel">
             <div class="toolbar">
               <div class="toolbar-left">
-                <div class="section-title">Session Overview</div>
-                <div class="tiny">${state.filteredSessions.length} / ${state.sessions.length} session hien thi</div>
+                <div class="section-title">Tổng quan phiên thi</div>
+                <div class="tiny">${state.filteredSessions.length} / ${state.sessions.length} phiên đang hiển thị</div>
               </div>
               <div class="toolbar-right">
-                <input class="input" type="text" value="${escapeHtml(state.search)}" placeholder="Tim theo ten, email, session id" oninput="setSearch(this.value)">
+                <input class="input" type="text" value="${escapeHtml(state.search)}" placeholder="Tìm theo tên, email, session id" oninput="setSearch(this.value)">
                 <select class="select" onchange="setStatus(this.value)">
-                  <option value="" ${state.status === "" ? "selected" : ""}>Tat ca trang thai</option>
-                  <option value="active" ${state.status === "active" ? "selected" : ""}>Dang thi</option>
-                  <option value="completed" ${state.status === "completed" ? "selected" : ""}>Hoan thanh</option>
-                  <option value="cancelled" ${state.status === "cancelled" ? "selected" : ""}>Da huy</option>
+                  <option value="" ${state.status === "" ? "selected" : ""}>Tất cả trạng thái</option>
+                  <option value="active" ${state.status === "active" ? "selected" : ""}>Đang thi</option>
+                  <option value="completed" ${state.status === "completed" ? "selected" : ""}>Hoàn thành</option>
+                  <option value="cancelled" ${state.status === "cancelled" ? "selected" : ""}>Đã hủy</option>
                 </select>
                 <select class="select" onchange="setRisk(this.value)">
-                  <option value="all" ${state.risk === "all" ? "selected" : ""}>Tat ca muc rui ro</option>
-                  <option value="critical" ${state.risk === "critical" ? "selected" : ""}>Critical</option>
-                  <option value="high" ${state.risk === "high" ? "selected" : ""}>High</option>
-                  <option value="medium" ${state.risk === "medium" ? "selected" : ""}>Watch</option>
-                  <option value="low" ${state.risk === "low" ? "selected" : ""}>Clean</option>
+                  <option value="all" ${state.risk === "all" ? "selected" : ""}>Tất cả mức rủi ro</option>
+                  <option value="critical" ${state.risk === "critical" ? "selected" : ""}>Nguy cấp</option>
+                  <option value="high" ${state.risk === "high" ? "selected" : ""}>Cao</option>
+                  <option value="medium" ${state.risk === "medium" ? "selected" : ""}>Theo dõi</option>
+                  <option value="low" ${state.risk === "low" ? "selected" : ""}>Ổn định</option>
                 </select>
-                <button class="button" onclick="loadData()">Lam moi</button>
+                <button class="button" onclick="loadData()">Làm mới</button>
               </div>
             </div>
 
@@ -824,28 +837,28 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Thi sinh</th>
-                    <th>Trang thai</th>
-                    <th>Risk</th>
-                    <th>Tong VP</th>
-                    <th>Critical / High</th>
+                    <th>Thí sinh</th>
+                    <th>Trạng thái</th>
+                    <th>Rủi ro</th>
+                    <th>Tổng VP</th>
+                    <th>Nguy cấp / Cao</th>
                     <th>Tab switch</th>
-                    <th>Duration</th>
-                    <th>Started</th>
+                    <th>Thời lượng</th>
+                    <th>Bắt đầu</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   ${state.filteredSessions.length === 0 ? `
-                    <tr><td colspan="9" class="empty">Khong co session nao khop bo loc hien tai.</td></tr>
+                    <tr><td colspan="9" class="empty">Không có phiên nào khớp bộ lọc hiện tại.</td></tr>
                   ` : state.filteredSessions.map((session) => {
                     const risk = riskForSession(session);
                     return `
                       <tr>
                         <td>
                           <div class="candidate">
-                            <strong>${escapeHtml(session.user_name || "Chua co ten")}</strong>
-                            <span class="tiny">${escapeHtml(session.user_email || "Khong co email")}</span>
+                            <strong>${escapeHtml(session.user_name || "Chưa có tên")}</strong>
+                            <span class="tiny">${escapeHtml(session.user_email || "Không có email")}</span>
                             <span class="mono">${escapeHtml(session.session_id || "")}</span>
                           </div>
                         </td>
@@ -861,7 +874,7 @@
                         <td class="mono">${session.tab_switch_count || 0}</td>
                         <td>${formatDuration(session)}</td>
                         <td class="tiny">${formatDate(session.started_at)}</td>
-                        <td><button class="link-button" onclick="showDetail('${escapeHtml(session.session_id)}')">Mo chi tiet</button></td>
+                        <td><button class="link-button" onclick="showDetail('${escapeHtml(session.session_id)}')">Mở chi tiết</button></td>
                       </tr>
                     `;
                   }).join("")}
@@ -872,18 +885,18 @@
 
           <aside class="panel side-panel">
             <div>
-              <div class="section-title">Rui Ro Tong Quan</div>
+              <div class="section-title">Rủi ro tổng quan</div>
               <div class="tiny" style="margin-top: 8px">
-                Muc risk duoc suy ra tu tong violation, trang thai session va cac su kien high / critical.
+                Mức rủi ro được suy ra từ tổng vi phạm đã lưu, trạng thái phiên và các sự kiện mức cao.
               </div>
             </div>
 
             <div class="kpi-list">
               ${[
-                ["Critical Sessions", state.sessions.filter((item) => riskForSession(item).key === "critical").length, "Can mo timeline va video ngay", "var(--critical)"],
-                ["High Risk Sessions", state.sessions.filter((item) => riskForSession(item).key === "high").length, "Khuyen nghi review thu cong", "var(--danger)"],
-                ["Watch Sessions", state.sessions.filter((item) => riskForSession(item).key === "medium").length, "Co dau hieu can theo doi", "var(--warning)"],
-                ["Clean Sessions", state.sessions.filter((item) => riskForSession(item).key === "low").length, "Khong co dau hieu bat thuong", "var(--success)"]
+                ["Phiên nguy cấp", state.sessions.filter((item) => riskForSession(item).key === "critical").length, "Cần mở timeline và clip ngay", "var(--critical)"],
+                ["Phiên rủi ro cao", state.sessions.filter((item) => riskForSession(item).key === "high").length, "Khuyến nghị kiểm tra thủ công", "var(--danger)"],
+                ["Phiên cần theo dõi", state.sessions.filter((item) => riskForSession(item).key === "medium").length, "Có dấu hiệu cần quan sát thêm", "var(--warning)"],
+                ["Phiên ổn định", state.sessions.filter((item) => riskForSession(item).key === "low").length, "Chưa ghi nhận bất thường", "var(--success)"]
               ].map(([label, value, copy, color]) => `
                 <div class="kpi-item">
                   <div class="tiny">${label}</div>
@@ -907,7 +920,7 @@
       app.innerHTML = `
         <div class="loading panel">
           <div class="spinner"></div>
-          <div>Dang tai session va feed high / critical...</div>
+          <div>Đang tải session và feed mức cao...</div>
         </div>
       `;
 
@@ -919,7 +932,7 @@
           supabaseSelect("exam_violations", {
             select: "id,session_id,event_type,severity,message,occurred_at",
             filters: {
-              severity: "in.(high,critical)"
+              event_type: "in.(ai_cheating_l2,multiple_faces,no_face)"
             },
             order: { column: "occurred_at", ascending: false },
             limit: 10
@@ -933,9 +946,9 @@
       } catch (error) {
         app.innerHTML = `
           <div class="loading panel">
-            <div style="color: var(--critical); font-weight: 700; margin-bottom: 10px">Khong tai duoc dashboard.</div>
+            <div style="color: var(--critical); font-weight: 700; margin-bottom: 10px">Không tải được dashboard.</div>
             <div>${escapeHtml(error.message || String(error))}</div>
-            <div class="tiny" style="margin-top: 10px">Hay chay migration trong Supabase SQL Editor truoc khi mo dashboard.</div>
+            <div class="tiny" style="margin-top: 10px">Hãy chạy migration trong Supabase SQL Editor trước khi mở dashboard.</div>
           </div>
         `;
       }
@@ -966,7 +979,7 @@
         <div class="modal">
           <div class="loading">
             <div class="spinner"></div>
-            <div>Dang tai timeline violation...</div>
+            <div>Đang tải timeline vi phạm...</div>
           </div>
         </div>
       `;
@@ -978,7 +991,8 @@
       try {
         const violations = await supabaseSelect("exam_violations", {
           filters: {
-            session_id: `eq.${sessionId}`
+            session_id: `eq.${sessionId}`,
+            event_type: "in.(ai_cheating_l2,multiple_faces,no_face)"
           },
           order: { column: "occurred_at", ascending: true }
         });
@@ -994,24 +1008,24 @@
         overlay.querySelector(".modal").innerHTML = `
           <div class="modal-head">
             <div>
-              <div class="eyebrow">Session Detail</div>
-              <h2 style="margin:14px 0 8px; font-size: 30px">${escapeHtml(session.user_name || "Candidate")}</h2>
-              <div class="tiny">${escapeHtml(session.user_email || "Khong co email")} | ${escapeHtml(session.session_id)}</div>
+              <div class="eyebrow">Chi tiết phiên thi</div>
+              <h2 style="margin:14px 0 8px; font-size: 30px">${escapeHtml(session.user_name || "Thí sinh chưa xác định")}</h2>
+              <div class="tiny">${escapeHtml(session.user_email || "Không có email")} | ${escapeHtml(session.session_id)}</div>
             </div>
-            <button class="button secondary" onclick="this.closest('.modal-overlay').remove()">Dong</button>
+            <button class="button secondary" onclick="this.closest('.modal-overlay').remove()">Đóng</button>
           </div>
 
           <div class="detail-stats">
             <div class="detail-stat">
-              <div class="tiny">Trang thai</div>
+              <div class="tiny">Trạng thái</div>
               <div class="value"><span class="badge ${statusClass(session.status)}">${escapeHtml(session.status)}</span></div>
             </div>
             <div class="detail-stat">
-              <div class="tiny">Duration</div>
+              <div class="tiny">Thời lượng</div>
               <div class="value">${formatDuration(session)}</div>
             </div>
             <div class="detail-stat">
-              <div class="tiny">Tong violation</div>
+              <div class="tiny">Tổng vi phạm</div>
               <div class="value">${violations.length}</div>
             </div>
             <div class="detail-stat">
@@ -1022,13 +1036,13 @@
 
           <div class="modal-grid">
             <section class="detail-card">
-              <div class="section-title" style="margin-bottom: 14px">Severity Breakdown</div>
+              <div class="section-title" style="margin-bottom: 14px">Phân bố mức độ</div>
               <div class="breakdown">
                 ${Object.entries(severityCounts).map(([severity, count]) => `
                   <div class="row-item">
                     <div style="display:flex;align-items:center;gap:10px">
                       <span class="badge ${severityClass(severity)}">${escapeHtml(severity)}</span>
-                      <span>${escapeHtml(EVENT_LABELS[`severity_${severity}`] || severity)}</span>
+                      <span>${escapeHtml(severity)}</span>
                     </div>
                     <strong class="mono">${count}</strong>
                   </div>
@@ -1037,10 +1051,10 @@
             </section>
 
             <section class="detail-card">
-              <div class="section-title" style="margin-bottom: 14px">Type Breakdown</div>
+              <div class="section-title" style="margin-bottom: 14px">Phân bố loại cảnh báo</div>
               <div class="breakdown">
                 ${Object.keys(typeCounts).length === 0 ? `
-                  <div class="empty" style="padding: 20px">Khong co violation nao trong session nay.</div>
+                  <div class="empty" style="padding: 20px">Không có vi phạm nào trong session này.</div>
                 ` : Object.entries(typeCounts)
                   .sort((a, b) => b[1] - a[1])
                   .map(([type, count]) => `
@@ -1054,21 +1068,21 @@
           </div>
 
           <section class="detail-card">
-            <div class="section-title" style="margin-bottom: 14px">Timeline</div>
+            <div class="section-title" style="margin-bottom: 14px">Dòng thời gian</div>
             <div class="timeline">
               ${violations.length === 0 ? `
-                <div class="empty" style="padding: 26px">Khong tim thay violation nao cho session nay.</div>
+                <div class="empty" style="padding: 26px">Không tìm thấy vi phạm nào cho session này.</div>
               ` : violations.map((violation) => `
                 <div class="timeline-item">
                   <div class="mono">${formatTime(violation.occurred_at)}</div>
                   <div><span class="badge ${severityClass(violation.severity)}">${escapeHtml(violation.severity)}</span></div>
                   <div class="timeline-message">
                     <strong>${escapeHtml(EVENT_LABELS[violation.event_type] || violation.event_type)}</strong>
-                    <span class="tiny">${escapeHtml(violation.message || "Khong co message bo sung")}</span>
+                    <span class="tiny">${escapeHtml(violation.message || "Không có ghi chú bổ sung")}</span>
                     ${violation.metadata ? `<div class="timeline-meta">${escapeHtml(JSON.stringify(violation.metadata, null, 2))}</div>` : ""}
                   </div>
                   <div>
-                    ${violation.video_url ? `<a class="video-link" href="${escapeHtml(violation.video_url)}" target="_blank" rel="noopener noreferrer">Mo video</a>` : '<span class="tiny">Khong co clip</span>'}
+                    ${violation.video_url ? `<a class="video-link" href="${escapeHtml(violation.video_url)}" target="_blank" rel="noopener noreferrer">Mở video</a>` : '<span class="tiny">Không có clip</span>'}
                   </div>
                 </div>
               `).join("")}
@@ -1079,10 +1093,10 @@
         overlay.querySelector(".modal").innerHTML = `
           <div class="modal-head">
             <div>
-              <h2 style="margin:0">Session Detail</h2>
+              <h2 style="margin:0">Chi tiết phiên thi</h2>
               <div class="tiny">${escapeHtml(sessionId)}</div>
             </div>
-            <button class="button secondary" onclick="this.closest('.modal-overlay').remove()">Dong</button>
+            <button class="button secondary" onclick="this.closest('.modal-overlay').remove()">Đóng</button>
           </div>
           <div class="empty">${escapeHtml(error.message || String(error))}</div>
         `;

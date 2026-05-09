@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 export interface ExamSessionConfig {
   userId: string;
   examUrl: string;
+  userName?: string;
+  userEmail?: string;
   referenceEmbeddingB64?: string;
 }
 

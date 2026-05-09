@@ -3,6 +3,7 @@ import { app, net } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import WebSocket from "ws";
+import { shouldPersistViolation } from "./violation-policy";
 
 const SUPABASE_URL = "https://oyfsjrywxxfndcwjyopi.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -213,25 +214,7 @@ export async function logSessionEnd(
 }
 
 export async function logExamSubmission(sessionId: string): Promise<void> {
-  try {
-    const { error } = await getSupabase().from("exam_violations").insert({
-      session_id: sessionId,
-      event_type: "exam_submitted",
-      severity: "low",
-      message: "Thi sinh da nop bai thi",
-      metadata: { submitted_at: new Date().toISOString() },
-      occurred_at: new Date().toISOString(),
-    });
-
-    if (error) {
-      console.error("[SupabaseLogger] logExamSubmission error:", error.message);
-      return;
-    }
-
-    console.log("[SupabaseLogger] Exam submission logged:", sessionId);
-  } catch (err: any) {
-    console.error("[SupabaseLogger] logExamSubmission network error:", err.message);
-  }
+  return;
 }
 
 export function logViolation(violation: {
@@ -242,6 +225,10 @@ export function logViolation(violation: {
   message?: string;
   metadata?: Record<string, unknown>;
 }): void {
+  if (!shouldPersistViolation(violation.event_type, violation.severity, violation.metadata || {})) {
+    return;
+  }
+
   const entry: PendingViolation = {
     id: violation.id ?? crypto.randomUUID(),
     session_id: violation.session_id,

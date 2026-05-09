@@ -110,7 +110,7 @@ export default function ReportPage({ sessionId, onNewExam }: Props) {
           <div>
             <h1 style={styles.title}>📋 Báo cáo bài thi</h1>
             <p style={{ color: "var(--color-text-muted)", fontSize: 13 }}>
-              Session: <code style={{ fontFamily: "var(--font-mono)" }}>{sessionId.slice(0, 8)}…</code>
+              Mã phiên: <code style={{ fontFamily: "var(--font-mono)" }}>{sessionId.slice(0, 8)}…</code>
             </p>
           </div>
           <button className="btn btn-ghost" onClick={onNewExam}>
@@ -164,7 +164,7 @@ export default function ReportPage({ sessionId, onNewExam }: Props) {
 
         {/* Timeline */}
         <div className="card">
-          <h2 style={styles.sectionTitle}>Timeline vi phạm</h2>
+          <h2 style={styles.sectionTitle}>Dòng thời gian vi phạm</h2>
           {report.timeline.length === 0 ? (
             <p style={{ color: "var(--color-success)", fontSize: 13 }}>
               ✓ Không có vi phạm nào được ghi nhận

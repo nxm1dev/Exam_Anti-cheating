@@ -10,10 +10,13 @@ import {
   logViolation,
   queueVideoUpload,
 } from "./supabase-logger";
+import { shouldPersistViolation } from "./violation-policy";
 
 type ExamStartConfig = {
   userId: string;
   examUrl: string;
+  userName?: string;
+  userEmail?: string;
 };
 
 type RegisterHandlersOptions = {
@@ -44,6 +47,8 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
     void logSessionStart({
       session_id: data.id,
       user_id: config.userId,
+      user_name: config.userName,
+      user_email: config.userEmail,
     });
 
     options.onExamStarted?.({
@@ -171,8 +176,12 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
 
   // ── Violations ─────────────────────────────────────────────────
   ipcMain.handle("violations:batch", async (_event, items) => {
+    const persistedItems = items.filter((item: any) =>
+      shouldPersistViolation(item.event_type, item.severity, item.metadata || {})
+    );
+
     // Log to Supabase FIRST (always, regardless of backend success)
-    for (const item of items) {
+    for (const item of persistedItems) {
       logViolation({
         id: item.id,
         session_id: item.session_id,
@@ -183,18 +192,26 @@ export function registerIpcHandlers(options: RegisterHandlersOptions = {}): void
       });
     }
 
+    if (persistedItems.length === 0) {
+      return [];
+    }
+
     // Then try backend (may fail if backend is down)
     try {
-      const { data } = await axios.post(`${backendUrl}/violations/batch`, items);
+      const { data } = await axios.post(`${backendUrl}/violations/batch`, persistedItems);
       return data;
     } catch (err: any) {
       console.error("[IPC] violations:batch backend error (Supabase logged OK):", err.message);
       // Return a stub so renderer doesn't crash
-      return items.map((item: any) => ({ ...item, id: crypto.randomUUID() }));
+      return persistedItems.map((item: any) => ({ ...item, id: crypto.randomUUID() }));
     }
   });
 
   ipcMain.handle("violation:log", async (_event, violation) => {
+    if (!shouldPersistViolation(violation.event_type, violation.severity, violation.metadata || {})) {
+      return null;
+    }
+
     // Log to Supabase FIRST
     logViolation({
       id: violation.id,

@@ -1,28 +1,13 @@
-/**
- * src/components/ExamMonitor.tsx
- * ──────────────────────────────
- * Multimodal Exam Monitor – Gửi frame camera + cờ VAD qua WebSocket.
- * Integrated with Rolling Video Buffer for violation clip capture.
- *
- * Dependencies:
- *   npm install @ricky0123/vad-react @ricky0123/vad-web
- */
-
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { useMicVAD } from "@ricky0123/vad-react";
 import { useRollingBuffer } from "../hooks/useRollingBuffer";
 
-
 interface ExamMonitorProps {
-  /** WebSocket URL, vd: 'ws://localhost:8001/ws/monitor/session-123' */
   webSocketUrl: string;
-  /** Session ID for video upload */
   sessionId: string;
-  /** Callback khi có kết quả từ backend */
-  onVerdict?: (verdict: MonitorVerdict, violationId?: string) => void;
+  onVerdict?: (verdict: MonitorVerdict, captureViolationClip: (violationId: string) => void) => void;
 }
 
-/** Verdict từ backend */
 export interface MonitorVerdict {
   status: string;
   message: string;
@@ -30,30 +15,38 @@ export interface MonitorVerdict {
   details?: Record<string, unknown>;
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  NORMAL: "Bình thường",
+  MILD_WARNING: "Cảnh báo nhẹ",
+  WARNING_LEVEL_1: "Cảnh báo mức 1",
+  WARNING_LEVEL_2_URGENT: "Cảnh báo mức 2",
+};
+
+const levelColors: Record<number, string> = {
+  0: "#45d59a",
+  1: "#ffbf5f",
+  2: "#ff9b5c",
+  3: "#ff5d7d",
+};
+
 const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVerdict }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-
-  // ── VAD debounce state ──
   const speechDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const isSpeakingRef = useRef(false);
+  const captureIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [verdict, setVerdict] = useState<MonitorVerdict | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
 
-  // Throttle: chỉ gửi frame mỗi 500ms (2 FPS) khi đang có speech
-  const captureIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // ── Rolling Buffer for violation clips ──────────────────────────────
   const { startRecording, captureViolationClip } = useRollingBuffer({
     sessionId,
     bufferDuration: 5,
     chunkIntervalMs: 1000,
   });
 
-  // ── WebSocket connection ─────────────────────────────────────────────────
   useEffect(() => {
     const socket = new WebSocket(webSocketUrl);
 
@@ -66,13 +59,7 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
       try {
         const data: MonitorVerdict = JSON.parse(event.data);
         setVerdict(data);
-        const violationId = data.level >= 3 ? crypto.randomUUID() : undefined;
-        onVerdict?.(data, violationId);
-
-        // Capture violation clip for level >= 3
-        if (violationId) {
-          captureViolationClip(violationId);
-        }
+        onVerdict?.(data, captureViolationClip);
       } catch {
         console.warn("[ExamMonitor] Invalid verdict JSON");
       }
@@ -93,43 +80,42 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
       socket.close();
       wsRef.current = null;
     };
-  }, [webSocketUrl]);
+  }, [captureViolationClip, onVerdict, webSocketUrl]);
 
-  // ── Camera init ──────────────────────────────────────────────────────────
   useEffect(() => {
     navigator.mediaDevices
       .getUserMedia({
         video: { width: 854, height: 480, frameRate: 15 },
-        audio: true, // Include audio for rolling buffer
+        audio: true,
       })
       .then((stream) => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        // Start rolling buffer recording with the combined stream
         startRecording(stream);
       })
       .catch(console.error);
-  }, []);
+  }, [startRecording]);
 
-  // ── Capture frame + send via WebSocket ───────────────────────────────────
   const captureAndSend = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ws = wsRef.current;
 
-    if (!video || !canvas || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!video || !canvas || !ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
 
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) {
+      return;
+    }
 
     canvas.width = 640;
     canvas.height = 480;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // JPEG 70% quality – giảm ~33% kích thước so với PNG
     const base64Image = canvas.toDataURL("image/jpeg", 0.7);
-
     ws.send(
       JSON.stringify({
         speech_detected: isSpeakingRef.current,
@@ -139,7 +125,6 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
     );
   }, []);
 
-  // ── Bắt đầu / dừng throttled capture ────────────────────────────────────
   const startCapture = useCallback(() => {
     captureAndSend();
     captureIntervalRef.current = setInterval(captureAndSend, 500);
@@ -152,14 +137,11 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
     }
   }, []);
 
-  // ── VAD integration ───────────────────────────────────────────────────
   const vad = useMicVAD({
     startOnLoad: true,
-
     onnxWASMBasePath: "/",
     baseAssetPath: "/",
     model: "legacy",
-
     ortConfig: (ort: any) => {
       ort.env.wasm.numThreads = 1;
       ort.env.wasm.wasmPaths = {
@@ -169,14 +151,12 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
         "ort-wasm-threaded.wasm": "/ort-wasm-simd-threaded.wasm",
       };
     },
-
     onSpeechStart: () => {
       console.log("[VAD] Speech started");
       isSpeakingRef.current = true;
       setIsSpeaking(true);
       startCapture();
     },
-
     onSpeechEnd: () => {
       if (isSpeakingRef.current) {
         console.log("[VAD] Speech ended");
@@ -186,7 +166,6 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
         captureAndSend();
       }
     },
-
     onVADMisfire: () => {
       if (isSpeakingRef.current) {
         isSpeakingRef.current = false;
@@ -197,7 +176,6 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
     },
   });
 
-  // Background monitoring: gửi frame mỗi 1 giây ngay cả khi im lặng
   useEffect(() => {
     const bgTimer = setInterval(() => {
       if (!isSpeakingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -208,7 +186,6 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
     return () => clearInterval(bgTimer);
   }, [captureAndSend]);
 
-  // ── Cleanup on unmount ───────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       stopCapture();
@@ -218,126 +195,175 @@ const ExamMonitor: React.FC<ExamMonitorProps> = ({ webSocketUrl, sessionId, onVe
     };
   }, [stopCapture]);
 
-  // ── UI ───────────────────────────────────────────────────────────────────
-  const levelColors: Record<number, string> = {
-    0: "#22c55e", // green – normal
-    1: "#eab308", // yellow – mild
-    2: "#f97316", // orange – level 1
-    3: "#ef4444", // red – level 2 urgent
-  };
-
-  const verdictColor = verdict
-    ? levelColors[verdict.level] || "#6b7280"
-    : "#6b7280";
+  const verdictColor = verdict ? levelColors[verdict.level] || "#6b7280" : "#6b7280";
+  const speechDetected = Boolean(verdict?.details?.speech_detected);
 
   return (
-    <div style={{ position: "relative", maxWidth: 640 }}>
-      {/* Camera preview */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{ width: "100%", maxWidth: "640px", borderRadius: 8 }}
-      />
+    <div style={styles.shell}>
+      <div style={styles.frame}>
+        <video ref={videoRef} autoPlay playsInline muted style={styles.video} />
+        <canvas ref={canvasRef} style={{ display: "none" }} />
 
-      {/* Hidden canvas for frame capture */}
-      <canvas ref={canvasRef} style={{ display: "none" }} />
+        <div style={styles.topRow}>
+          <div
+            style={{
+              ...styles.statusChip,
+              background: wsConnected ? "rgba(69, 213, 154, 0.18)" : "rgba(109, 124, 146, 0.18)",
+              color: wsConnected ? "#9cf0cc" : "#c8d3e3",
+            }}
+          >
+            {wsConnected ? "Kết nối AI ổn định" : "Đang kết nối AI"}
+          </div>
 
-      {/* VAD Status Badge */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          right: 10,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          alignItems: "flex-end"
-        }}
-      >
-        <div
-          style={{
-            padding: "6px 14px",
-            background: isSpeaking ? "#ef4444" : "#22c55e",
-            color: "white",
-            borderRadius: 6,
-            fontWeight: "bold",
-            fontSize: 12,
-            opacity: 0.9,
-          }}
-        >
-          🎙 {isSpeaking ? "SPEAKING" : "Silent"}
+          <div
+            style={{
+              ...styles.statusChip,
+              background: isSpeaking ? "rgba(255, 93, 125, 0.18)" : "rgba(69, 213, 154, 0.18)",
+              color: isSpeaking ? "#ffb1c0" : "#9cf0cc",
+            }}
+          >
+            {isSpeaking ? "Đang phát hiện giọng nói" : "Âm thanh yên tĩnh"}
+          </div>
         </div>
 
-        {vad.loading && (
-          <div style={{ fontSize: 10, color: "white", background: "rgba(0,0,0,0.5)", padding: "2px 6px", borderRadius: 4 }}>
-            ⏳ VAD Loading...
-          </div>
-        )}
+        {vad.loading && <div style={styles.loadingHint}>Đang khởi tạo mô-đun nhận diện giọng nói...</div>}
+
         {vad.errored && (
-          <div style={{ fontSize: 10, color: "white", background: "rgba(255,0,0,0.8)", padding: "4px 8px", borderRadius: 4, maxWidth: 200, wordWrap: "break-word" }}>
-            ❌ VAD Error: {(vad.errored as any).message || String(vad.errored)}
+          <div style={styles.errorHint}>
+            Không thể khởi tạo microphone: {(vad.errored as any).message || String(vad.errored)}
           </div>
         )}
+
         {!vad.loading && !vad.errored && !vad.listening && (
-          <button
-            onClick={() => vad.start()}
-            style={{ fontSize: 10, padding: "2px 8px", cursor: "pointer", background: "#3b82f6", color: "white", border: "none", borderRadius: 4 }}
-          >
-            ▶ Start Mic
+          <button onClick={() => vad.start()} style={styles.micButton}>
+            Bật lại microphone
           </button>
         )}
-      </div>
 
-      {/* WebSocket Status */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          padding: "4px 10px",
-          background: wsConnected ? "rgba(34,197,94,0.8)" : "rgba(107,114,128,0.8)",
-          color: "white",
-          borderRadius: 4,
-          fontSize: 10,
-        }}
-      >
-        WS: {wsConnected ? "Connected" : "Disconnected"}
-      </div>
-
-      {/* Verdict Panel */}
-      {verdict && verdict.level > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 10,
-            left: 10,
-            right: 10,
-            padding: "10px 14px",
-            background: "rgba(0,0,0,0.85)",
-            borderLeft: `4px solid ${verdictColor}`,
-            borderRadius: 6,
-            color: "white",
-            fontSize: 13,
-          }}
-        >
-          <div style={{ fontWeight: "bold", color: verdictColor, marginBottom: 4 }}>
-            ⚠ Lv.{verdict.level} – {verdict.status}
-          </div>
-          <div>{verdict.message}</div>
-          {verdict.details && (
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-              MAR: {(verdict.details.mar_value as number)?.toFixed(4)} |
-              Δ: {(verdict.details.mar_delta as number)?.toFixed(4)} |
-              Mouth: {String(verdict.details.is_mouth_moving)} |
-              Away: {String(verdict.details.is_looking_away)}
+        {verdict && verdict.level > 0 && (
+          <div style={{ ...styles.verdictPanel, borderLeftColor: verdictColor }}>
+            <div style={{ ...styles.verdictHeader, color: verdictColor }}>
+              {STATUS_LABELS[verdict.status] || verdict.status}
             </div>
-          )}
-        </div>
-      )}
+            <div style={styles.verdictMessage}>{verdict.message}</div>
+            <div style={styles.verdictMeta}>
+              <span>Mức: {verdict.level}</span>
+              <span>Số khuôn mặt: {String(verdict.details?.face_count ?? 0)}</span>
+              <span>Âm thanh: {speechDetected ? "Có" : "Không"}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
+};
+
+const styles: Record<string, React.CSSProperties> = {
+  shell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  frame: {
+    position: "relative",
+    borderRadius: 20,
+    overflow: "hidden",
+    border: "1px solid rgba(158, 192, 245, 0.16)",
+    background: "rgba(4, 11, 19, 0.92)",
+    boxShadow: "0 20px 44px rgba(0, 0, 0, 0.28)",
+  },
+  video: {
+    display: "block",
+    width: "100%",
+    maxWidth: 640,
+    aspectRatio: "4 / 3",
+    objectFit: "cover",
+    background: "#02070d",
+  },
+  topRow: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    right: 12,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  statusChip: {
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255, 255, 255, 0.08)",
+    backdropFilter: "blur(10px)",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  loadingHint: {
+    position: "absolute",
+    left: 12,
+    bottom: 12,
+    padding: "8px 12px",
+    borderRadius: 12,
+    background: "rgba(9, 18, 32, 0.78)",
+    color: "#d8e7ff",
+    fontSize: 12,
+  },
+  errorHint: {
+    position: "absolute",
+    left: 12,
+    bottom: 12,
+    right: 12,
+    padding: "10px 12px",
+    borderRadius: 14,
+    background: "rgba(255, 93, 125, 0.18)",
+    border: "1px solid rgba(255, 93, 125, 0.26)",
+    color: "#ffd1da",
+    fontSize: 12,
+    lineHeight: 1.5,
+  },
+  micButton: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    border: "none",
+    borderRadius: 12,
+    background: "linear-gradient(135deg, #57a6ff, #2dd4bf)",
+    color: "#04111d",
+    fontWeight: 700,
+    padding: "10px 14px",
+    cursor: "pointer",
+  },
+  verdictPanel: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 12,
+    padding: "12px 14px",
+    borderRadius: 16,
+    background: "rgba(4, 11, 19, 0.9)",
+    borderLeft: "4px solid transparent",
+    boxShadow: "0 10px 26px rgba(0, 0, 0, 0.3)",
+  },
+  verdictHeader: {
+    fontSize: 12,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: 6,
+  },
+  verdictMessage: {
+    fontSize: 13,
+    color: "#f2f7ff",
+    lineHeight: 1.5,
+    marginBottom: 6,
+  },
+  verdictMeta: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 10,
+    fontSize: 11,
+    color: "#9fb0c7",
+  },
 };
 
 export default ExamMonitor;

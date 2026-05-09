@@ -17,6 +17,10 @@ import ExamMonitor, { MonitorVerdict } from "../components/ExamMonitor";
 import AlertBanner from "../components/AlertBanner";
 import ViolationList from "../components/ViolationList";
 import { useViolations } from "../hooks/useViolations";
+import {
+  LEVEL_TWO_LOG_COOLDOWN_MS,
+  NO_FACE_LOG_THRESHOLD_MS,
+} from "../lib/violationPolicy";
 
 const api = (window as any).electronAPI;
 
@@ -48,6 +52,8 @@ export default function ExamPage({
   const [latestAlert, setLatestAlert] = useState<{ id: number; msg: string; severity: string } | null>(null);
   const [monitorVerdict, setMonitorVerdict] = useState<MonitorVerdict | null>(null);
   const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const noFaceStartedAtRef = useRef<number | null>(null);
+  const levelTwoCooldownRef = useRef<Record<string, number>>({});
 
   // ── Focus warning (Alt+Tab / Window key) ─────────────────────────
   const [showFocusWarning, setShowFocusWarning] = useState(false);
@@ -100,32 +106,88 @@ export default function ExamPage({
     [addViolation]
   );
 
+  const canEmitLevelTwoEvent = useCallback((eventType: string) => {
+    const now = Date.now();
+    const lastLoggedAt = levelTwoCooldownRef.current[eventType] || 0;
+    if (now - lastLoggedAt < LEVEL_TWO_LOG_COOLDOWN_MS) {
+      return false;
+    }
+    levelTwoCooldownRef.current[eventType] = now;
+    return true;
+  }, []);
+
   // ── Multimodal Monitoring Verdict ──────────────────────────────
-  const handleMonitorVerdict = useCallback((verdict: MonitorVerdict, violationId?: string) => {
+  const handleMonitorVerdict = useCallback((
+    verdict: MonitorVerdict,
+    captureViolationClip: (violationId: string) => void
+  ) => {
     setMonitorVerdict(verdict);
 
-    if (verdict.level >= 1) {
-      let severity = "low";
-      let type = "ai_cheating_mild";
+    const faceCount = Number(verdict.details?.face_count ?? 0);
+    const details = verdict.details || {};
 
-      if (verdict.level === 3) {
-        severity = "critical";
-        type = "ai_cheating_l2";
-      } else if (verdict.level === 2) {
-        severity = "medium";
-        type = "ai_cheating_l1";
+    if (faceCount === 0) {
+      if (noFaceStartedAtRef.current === null) {
+        noFaceStartedAtRef.current = Date.now();
       }
 
-      const faceCount = verdict.details?.face_count as number;
-      if (faceCount === 0) {
-        handleViolation("no_face", "high", verdict.details || {}, verdict.message, violationId);
-      } else if (faceCount > 1) {
-        handleViolation("multiple_faces", "high", verdict.details || {}, verdict.message, violationId);
-      } else {
-        handleViolation(type, severity, verdict.details || {}, verdict.message, violationId);
+      const durationMs = Date.now() - noFaceStartedAtRef.current;
+      if (durationMs >= NO_FACE_LOG_THRESHOLD_MS && canEmitLevelTwoEvent("no_face")) {
+        const violationId = crypto.randomUUID();
+        captureViolationClip(violationId);
+        handleViolation(
+          "no_face",
+          "critical",
+          {
+            ...details,
+            no_face_duration_ms: durationMs,
+            no_face_duration_seconds: Math.floor(durationMs / 1000),
+          },
+          `Không phát hiện khuôn mặt trong khoảng ${Math.floor(durationMs / 1000)} giây.`,
+          violationId
+        );
       }
+      return;
     }
-  }, [handleViolation]);
+
+    noFaceStartedAtRef.current = null;
+
+    if (faceCount >= 2) {
+      if (canEmitLevelTwoEvent("multiple_faces")) {
+        const violationId = crypto.randomUUID();
+        captureViolationClip(violationId);
+        handleViolation(
+          "multiple_faces",
+          "critical",
+          {
+            ...details,
+            confirmed_face_count: faceCount,
+          },
+          verdict.message,
+          violationId
+        );
+      }
+      return;
+    }
+
+    if (verdict.level === 3) {
+      if (canEmitLevelTwoEvent("ai_cheating_l2")) {
+        const violationId = crypto.randomUUID();
+        captureViolationClip(violationId);
+        handleViolation("ai_cheating_l2", "critical", details, verdict.message, violationId);
+      }
+      return;
+    }
+
+    if (verdict.level === 2) {
+      handleViolation("ai_cheating_l1", "medium", details, verdict.message);
+      return;
+    }
+
+    if (verdict.level === 1) {
+      handleViolation("ai_cheating_mild", "low", details, verdict.message);
+    }
+  }, [canEmitLevelTwoEvent, handleViolation]);
 
   // ── Pre-exam Countdown ──────────────────────────────────────────
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { shouldPersistViolation } from "../lib/violationPolicy";
 
 const api = (window as any).electronAPI;
 
@@ -29,6 +30,10 @@ export function useViolations({ sessionId, userId }: Options) {
       message?: string,
       violationId?: string
     ) => {
+      if (!shouldPersistViolation(eventType, severity, metadata)) {
+        return;
+      }
+
       const event: ViolationEvent = {
         id: violationId ?? crypto.randomUUID(),
         eventType,
