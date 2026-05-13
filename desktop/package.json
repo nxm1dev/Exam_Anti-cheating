@@ -19,6 +19,7 @@
     "@ricky0123/vad-web": "^0.0.30",
     "@supabase/supabase-js": "^2.105.3",
     "axios": "^1.7.0",
+    "js-yaml": "^4.1.1",
     "onnxruntime-web": "^1.25.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
@@ -34,6 +35,7 @@
     "electron": "^31.0.0",
     "electron-builder": "^24.0.0",
     "html-webpack-plugin": "^5.6.0",
+    "rcedit": "^5.0.2",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.5.0",
     "typescript": "^5.4.0",
@@ -44,6 +46,7 @@
   },
   "build": {
     "appId": "com.examac.desktop",
+    "afterPack": "./scripts/afterPack.js",
     "productName": "Exam Anti-cheating",
     "directories": {
       "output": "release"
@@ -51,7 +54,10 @@
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "files": [
       "dist/**/*",
-      "package.json"
+      "assets/**/*",
+      "package.json",
+      "node_modules/js-yaml/**/*",
+      "node_modules/argparse/**/*"
     ],
     "extraResources": [
       {
@@ -60,39 +66,24 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "../backend",
-        "to": "runtime/backend",
-        "filter": [
-          "**/*",
-          "!tests{,/**/*}",
-          "!__pycache__{,/**/*}",
-          "!.pytest_cache{,/**/*}",
-          "!**/*.pyc"
-        ]
-      },
-      {
-        "from": "../ai-service",
-        "to": "runtime/ai-service",
-        "filter": [
-          "**/*",
-          "!tests{,/**/*}",
-          "!__pycache__{,/**/*}",
-          "!.pytest_cache{,/**/*}",
-          "!**/*.pyc"
-        ]
       }
     ],
     "win": {
       "target": "nsis",
+      "executableName": "Exam Anti-cheating",
       "signAndEditExecutable": false
     },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "assets/icon.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "assets/icon.png"
     }
   }
 }

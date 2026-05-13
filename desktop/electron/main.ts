@@ -4,7 +4,6 @@ import * as path from "path";
 
 import { attachBrowserGuard } from "./browser-guard";
 import { registerIpcHandlers } from "./ipc-handlers";
-import { ensurePackagedServicesReady, stopManagedServices } from "./service-manager";
 import { SERVICE_URLS } from "./service-urls";
 import { enableExamKeyboardLock, disableExamKeyboardLock } from "./keyboard-lock";
 import {
@@ -24,6 +23,8 @@ import { shouldPersistViolation } from "./violation-policy";
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
+
+app.setAppUserModelId("com.examac.desktop");
 
 let mainWindow: BrowserWindow | null = null;
 let examView: BrowserView | null = null;
@@ -282,6 +283,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     backgroundColor: "#0f1117",
+    icon: path.join(__dirname, "../../assets/icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -396,17 +398,6 @@ async function bootstrapApp() {
   // Initialize Supabase logger (loads crash-recovery queue)
   initSupabaseLogger();
 
-  try {
-    await ensurePackagedServicesReady();
-  } catch (error: any) {
-    dialog.showErrorBox(
-      "Exam Anti-cheating startup failed",
-      error?.message || "Khong the khoi dong backend va AI service."
-    );
-    app.quit();
-    return;
-  }
-
   registerIpcHandlers({
     backendUrl: SERVICE_URLS.backend,
     aiUrl: SERVICE_URLS.ai,
@@ -474,7 +465,6 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   stopExamSession();
-  stopManagedServices();
   shutdownSupabaseLogger();
 });
 
