@@ -1,0 +1,21 @@
+# ============================================================
+# Exam Anti-cheating – Global Application Configuration
+# ============================================================
+app:
+  name: "Exam Anti-cheating"
+  version: "1.0.0"
+
+# Local service ports
+services:
+  backend_port: 8000        # FastAPI backend
+  ai_service_port: 8001     # Python AI service
+
+# Exam session settings
+session:
+  max_duration_minutes: 180 # Maximum exam duration
+  heartbeat_interval_ms: 5000  # Desktop → backend keep-alive
+
+# Logging
+logging:
+  level: "INFO"             # DEBUG | INFO | WARNING | ERROR
+  format: "json"            # json | text

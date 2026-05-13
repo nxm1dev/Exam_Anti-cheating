@@ -1,0 +1,29 @@
+# ============================================================
+# Exam Anti-cheating – Camera Monitoring Configuration
+# ============================================================
+camera:
+  # Frame capture settings
+  capture_interval_seconds: 2      # Capture one frame every N seconds
+  frame_width: 640
+  frame_height: 480
+
+  # Face detection thresholds
+  detection:
+    min_face_confidence: 0.7       # Minimum confidence to count a face
+    no_face_warning_seconds: 10    # Alert if no face detected for this long
+    no_face_critical_seconds: 30   # Critical alert threshold
+    max_allowed_faces: 1           # Alert if more faces than this
+
+  # Face recognition (identity verification)
+  recognition:
+    enabled: true
+    similarity_threshold: 0.4      # Cosine distance threshold (lower = stricter)
+    # Frames to collect before declaring identity mismatch
+    mismatch_frames_threshold: 3
+
+  # Violation severity
+  severity:
+    no_face: "medium"
+    no_face_critical: "high"
+    multiple_faces: "critical"
+    identity_mismatch: "critical"

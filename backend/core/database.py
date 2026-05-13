@@ -26,7 +26,14 @@ if not settings.database_url.startswith("sqlite"):
         }
     )
 
-engine = create_async_engine(settings.database_url, **engine_kwargs)
+engine = create_async_engine(
+    settings.database_url,
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0
+    },
+    **engine_kwargs
+)
 
 AsyncSessionFactory = async_sessionmaker(
     engine,

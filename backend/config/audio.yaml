@@ -1,0 +1,35 @@
+# ============================================================
+# Exam Anti-cheating – Audio Monitoring Configuration
+# ============================================================
+audio:
+  # Capture settings
+  sample_rate: 16000              # Hz – required by WebRTC VAD
+  chunk_duration_ms: 30           # VAD frame size: 10, 20, or 30 ms
+  analysis_window_seconds: 3      # Aggregate N seconds before analysis
+
+  # Voice Activity Detection
+  vad:
+    mode: 3                       # WebRTC VAD aggressiveness: 0-3 (3=most aggressive)
+    speech_ratio_threshold: 0.3   # Min ratio of speech frames to trigger analysis
+
+  # Feature extraction (MFCC)
+  features:
+    n_mfcc: 13                    # Number of MFCC coefficients
+    hop_length: 512
+
+  # Multi-speaker / anomaly detection
+  anomaly:
+    # Change detection: cosine distance between consecutive windows
+    change_threshold: 0.35        # Distance > this = possible speaker change
+    # How many changes in a short window to trigger warning
+    rapid_change_count: 3
+    rapid_change_window_seconds: 15
+    # Overlap detection: energy in two frequency bands simultaneously
+    overlap_energy_ratio: 0.6     # If both bands saturated = possible overlap
+
+  # Violation severity
+  severity:
+    speech_detected: "low"        # Background noise / single voice – just log
+    multiple_voices: "high"
+    voice_overlap: "critical"
+    rapid_changes: "high"

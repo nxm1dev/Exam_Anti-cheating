@@ -1,0 +1,25 @@
+# ============================================================
+# Exam Anti-cheating – URL Whitelist Configuration
+# Only these URLs (and their sub-paths) are allowed in exam.
+# ============================================================
+whitelist:
+  # Example exam platforms – replace with real URLs
+  - "https://azota.vn/*"
+  - "https://*.azota.vn/*"
+  - "https://exam.example.edu/*"
+  - "https://lms.university.edu/exam/*"
+  - "https://quizlet.com/test/*"
+
+# Allow these domains for static resources (fonts, CDNs, etc.)
+resource_domains:
+  - "fonts.googleapis.com"
+  - "fonts.gstatic.com"
+  - "cdn.jsdelivr.net"
+
+# Navigation rules
+navigation:
+  block_new_tab: true
+  block_popup: true
+  block_external_links: true   # Any link outside whitelist
+  block_right_click: true
+  block_devtools: true
